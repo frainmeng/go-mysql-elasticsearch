@@ -248,6 +248,7 @@ func (r *River) makeUpdateRequest(rule *Rule, rows [][]interface{}) ([]*elastic.
 
 		req := &elastic.BulkRequest{Index: rule.Index, Type: rule.Type, ID: beforeID, Parent: beforeParentID}
 
+		
 		if beforeID != afterID || beforeParentID != afterParentID {
 			req.Action = elastic.ActionDelete
 			reqs = append(reqs, req)
@@ -258,15 +259,22 @@ func (r *River) makeUpdateRequest(rule *Rule, rows [][]interface{}) ([]*elastic.
 			r.st.DeleteNum.Add(1)
 			r.st.InsertNum.Add(1)
 		} else {
-			if len(rule.Pipeline) > 0 {
-				// Pipelines can only be specified on index action
-				r.makeInsertReqData(req, rule, rows[i+1])
-				// Make sure action is index, not create
-				req.Action = elastic.ActionIndex
-				req.Pipeline = rule.Pipeline
-			} else {
-				r.makeUpdateReqData(req, rule, rows[i], rows[i+1])
-			}
+			//先尝试删除
+			req.Action = elastic.ActionDelete
+			reqs = append(reqs, req)
+			//再重新添加
+			req = &elastic.BulkRequest{Index: rule.Index, Type: rule.Type, ID: afterID, Parent: afterParentID, Pipeline: rule.Pipeline}
+			r.makeInsertReqData(req, rule, rows[i+1])
+
+			// if len(rule.Pipeline) > 0 {
+			// 	// Pipelines can only be specified on index action
+			// 	r.makeInsertReqData(req, rule, rows[i+1])
+			// 	// Make sure action is index, not create
+			// 	req.Action = elastic.ActionIndex
+			// 	req.Pipeline = rule.Pipeline
+			// } else {
+			// 	r.makeUpdateReqData(req, rule, rows[i], rows[i+1])
+			// }
 			r.st.UpdateNum.Add(1)
 		}
 
