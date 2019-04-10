@@ -88,6 +88,7 @@ type BulkRequest struct {
 	Pipeline string
 
 	Data map[string]interface{}
+	PKData map[string]interface{}
 }
 
 func (r *BulkRequest) bulk(buf *bytes.Buffer) error {

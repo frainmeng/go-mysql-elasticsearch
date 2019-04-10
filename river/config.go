@@ -26,6 +26,12 @@ type Config struct {
 	ESUser     string `toml:"es_user"`
 	ESPassword string `toml:"es_pass"`
 
+	PGHost string		`toml:"pg_host"`
+	PGPort int16		`toml:"pg_port"`
+	PGUser string		`toml:"pg_user"`
+	PGPassword string	`toml:"pg_pass"`
+	PGDBName string		`toml:"pg_dbname"`
+
 	StatAddr string `toml:"stat_addr"`
 
 	ServerID uint32 `toml:"server_id"`

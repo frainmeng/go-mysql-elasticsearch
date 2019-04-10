@@ -158,7 +158,7 @@ func (r *River) syncLoop() {
 
 		if needFlush {
 			// TODO: retry some times?
-			if err := r.doBulk(reqs); err != nil {
+			if err := r.doPGBulk(reqs); err != nil {
 				log.Errorf("do ES bulk err %v, close sync", err)
 				r.cancel()
 				return
@@ -193,10 +193,10 @@ func (r *River) makeRequest(rule *Rule, action string, rows [][]interface{}) ([]
 			}
 		}
 
-		req := &elastic.BulkRequest{Index: rule.Index, Type: rule.Type, ID: id, Parent: parentID, Pipeline: rule.Pipeline}
+		req := &elastic.BulkRequest{Index: rule.PGSchema, Type: rule.PGTable, ID: id, Parent: parentID, Pipeline: rule.Pipeline}
 
 		if action == canal.DeleteAction {
-			req.Action = elastic.ActionDelete
+			r.makeDeleteReqData(req, rule, values)
 			r.st.DeleteNum.Add(1)
 		} else {
 			r.makeInsertReqData(req, rule, values)
@@ -246,7 +246,7 @@ func (r *River) makeUpdateRequest(rule *Rule, rows [][]interface{}) ([]*elastic.
 			}
 		}
 
-		req := &elastic.BulkRequest{Index: rule.Index, Type: rule.Type, ID: beforeID, Parent: beforeParentID}
+		req := &elastic.BulkRequest{Index: rule.PGSchema, Type: rule.PGTable, ID: beforeID, Parent: beforeParentID}
 
 		if beforeID != afterID || beforeParentID != afterParentID {
 			req.Action = elastic.ActionDelete
@@ -394,8 +394,32 @@ func (r *River) makeInsertReqData(req *elastic.BulkRequest, rule *Rule, values [
 	}
 }
 
+func (r *River) makeDeleteReqData(req *elastic.BulkRequest, rule *Rule, values []interface{}) {
+	req.PKData = make(map[string]interface{}, len(values))
+	req.Action = elastic.ActionDelete
+
+	//主键数据
+	for _, index := range rule.TableInfo.PKColumns {
+		c := rule.TableInfo.Columns[index]
+		mapped := false
+		for k, v := range rule.FieldMapping {
+			mysql, elastic, fieldType := r.getFieldParts(k, v)
+			if mysql == c.Name {
+				mapped = true
+				req.PKData[elastic] = r.getFieldValue(&c, fieldType, values[index])
+			}
+		}
+		if mapped == false {
+			req.PKData[c.Name] = r.makeReqColumnData(&c, values[index])
+		}
+	}
+}
+
 func (r *River) makeUpdateReqData(req *elastic.BulkRequest, rule *Rule,
 	beforeValues []interface{}, afterValues []interface{}) {
+	//主键数据
+	r.makeDeleteReqData(req,rule,beforeValues)
+
 	req.Data = make(map[string]interface{}, len(beforeValues))
 
 	// maybe dangerous if something wrong delete before?
@@ -492,6 +516,18 @@ func (r *River) doBulk(reqs []*elastic.BulkRequest) error {
 
 	return nil
 }
+
+func (r *River) doPGBulk(reqs []*elastic.BulkRequest) error  {
+	if len(reqs) == 0 {
+		return nil
+	}
+	if  err := r.pg.Bulk(reqs);err != nil {
+		log.Errorf("sync docs err %v after binlog %s", err, r.canal.SyncedPosition())
+		return errors.Trace(err)
+	}
+	return nil
+}
+
 
 // get mysql field value and convert it to specific value to es
 func (r *River) getFieldValue(col *schema.TableColumn, fieldType string, value interface{}) interface{} {

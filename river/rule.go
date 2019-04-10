@@ -18,6 +18,10 @@ type Rule struct {
 	Parent string   `toml:"parent"`
 	ID     []string `toml:"id"`
 
+	PGSchema string	`toml:"pg_schema"`
+	PGTable string	`toml:"pg_table"`
+
+
 	// Default, a MySQL table field name is mapped to Elasticsearch field name.
 	// Sometimes, you want to use different name, e.g, the MySQL file name is title,
 	// but in Elasticsearch, you want to name it my_title.
