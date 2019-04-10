@@ -76,6 +76,12 @@ func (h *eventHandler) OnRow(e *canal.RowsEvent) error {
 		return nil
 	}
 
+	for _, action := range rule.SkipActions {
+		if e.Action == action {
+			return nil
+		}
+	}
+
 	var reqs []*elastic.BulkRequest
 	var err error
 	switch e.Action {
@@ -91,7 +97,7 @@ func (h *eventHandler) OnRow(e *canal.RowsEvent) error {
 
 	if err != nil {
 		h.r.cancel()
-		return errors.Errorf("make %s ES request err %v, close sync", e.Action, err)
+		return errors.Errorf("make %s postgresql request err %v, close sync", e.Action, err)
 	}
 
 	h.r.syncCh <- reqs
@@ -159,7 +165,7 @@ func (r *River) syncLoop() {
 		if needFlush {
 			// TODO: retry some times?
 			if err := r.doPGBulk(reqs); err != nil {
-				log.Errorf("do ES bulk err %v, close sync", err)
+				log.Errorf("do pg bulk err %v, close sync", err)
 				r.cancel()
 				return
 			}
@@ -418,7 +424,7 @@ func (r *River) makeDeleteReqData(req *elastic.BulkRequest, rule *Rule, values [
 func (r *River) makeUpdateReqData(req *elastic.BulkRequest, rule *Rule,
 	beforeValues []interface{}, afterValues []interface{}) {
 	//主键数据
-	r.makeDeleteReqData(req,rule,beforeValues)
+	r.makeDeleteReqData(req, rule, beforeValues)
 
 	req.Data = make(map[string]interface{}, len(beforeValues))
 
@@ -517,17 +523,16 @@ func (r *River) doBulk(reqs []*elastic.BulkRequest) error {
 	return nil
 }
 
-func (r *River) doPGBulk(reqs []*elastic.BulkRequest) error  {
+func (r *River) doPGBulk(reqs []*elastic.BulkRequest) error {
 	if len(reqs) == 0 {
 		return nil
 	}
-	if  err := r.pg.Bulk(reqs);err != nil {
+	if err := r.pg.Bulk(reqs); err != nil {
 		log.Errorf("sync docs err %v after binlog %s", err, r.canal.SyncedPosition())
 		return errors.Trace(err)
 	}
 	return nil
 }
-
 
 // get mysql field value and convert it to specific value to es
 func (r *River) getFieldValue(col *schema.TableColumn, fieldType string, value interface{}) interface{} {

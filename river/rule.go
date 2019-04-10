@@ -18,9 +18,8 @@ type Rule struct {
 	Parent string   `toml:"parent"`
 	ID     []string `toml:"id"`
 
-	PGSchema string	`toml:"pg_schema"`
-	PGTable string	`toml:"pg_table"`
-
+	PGSchema string `toml:"pg_schema"`
+	PGTable  string `toml:"pg_table"`
 
 	// Default, a MySQL table field name is mapped to Elasticsearch field name.
 	// Sometimes, you want to use different name, e.g, the MySQL file name is title,
@@ -32,6 +31,8 @@ type Rule struct {
 
 	//only MySQL fields in filter will be synced , default sync all fields
 	Filter []string `toml:"filter"`
+
+	SkipActions []string `toml:"skip_actions"`
 
 	// Elasticsearch pipeline
 	// To pre-process documents before indexing
