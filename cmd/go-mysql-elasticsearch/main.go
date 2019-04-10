@@ -22,10 +22,17 @@ var server_id = flag.Int("server_id", 0, "MySQL server id, as a pseudo slave")
 var flavor = flag.String("flavor", "", "flavor: mysql or mariadb")
 var execution = flag.String("exec", "", "mysqldump execution path")
 var logLevel = flag.String("log_level", "info", "log level")
+var max_procs = flag.Int("max_procs", 0, "GOMAXPROCS")
 
 func main() {
-	runtime.GOMAXPROCS(runtime.NumCPU())
+
 	flag.Parse()
+
+	if *max_procs > 0 {
+		runtime.GOMAXPROCS(*max_procs)
+	} else {
+		runtime.GOMAXPROCS(runtime.NumCPU())
+	}
 
 	log.SetLevelByName(*logLevel)
 
