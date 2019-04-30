@@ -75,7 +75,6 @@ func (h *eventHandler) OnRow(e *canal.RowsEvent) error {
 	if !ok {
 		return nil
 	}
-	log.Infof("log info [%v]", e.Header.LogPos)
 	for _, action := range rule.SkipActions {
 		if e.Action == action {
 			return nil
@@ -99,7 +98,9 @@ func (h *eventHandler) OnRow(e *canal.RowsEvent) error {
 		h.r.cancel()
 		return errors.Errorf("make %s postgresql request err %v, close sync", e.Action, err)
 	}
-
+	if len(reqs) > 0 {
+		reqs[len(reqs)-1].Pos = e.Header.LogPos
+	}
 	h.r.syncCh <- reqs
 
 	return h.r.ctx.Err()
@@ -147,7 +148,7 @@ func (r *River) syncLoop() {
 			switch v := v.(type) {
 			case posSaver:
 				now := time.Now()
-				if v.force || now.Sub(lastSavedTime) > 3*time.Second {
+				if v.force || now.Sub(lastSavedTime) > 5*time.Second {
 					lastSavedTime = now
 					needFlush = true
 					needSavePos = true
@@ -163,12 +164,18 @@ func (r *River) syncLoop() {
 			return
 		}
 
-		if needFlush {
+		if needFlush && len(reqs) > 0 {
 			// TODO: retry some times?
 			if err := r.doPGBulk(reqs); err != nil {
 				log.Errorf("do pg bulk err %v, close sync", err)
 				r.cancel()
 				return
+			}
+			lastPos := reqs[len(reqs)-1].Pos
+			if !needSavePos && pos.Pos < lastPos {
+				log.Info("保存")
+				pos.Pos = lastPos
+				needSavePos = true
 			}
 			reqs = reqs[0:0]
 		}

@@ -48,7 +48,7 @@ func NewRiver(c *Config) (*River, error) {
 
 	r.c = c
 	r.rules = make(map[string]*Rule)
-	r.syncCh = make(chan interface{}, 4096)
+	r.syncCh = make(chan interface{}, 0)
 	r.ctx, r.cancel = context.WithCancel(context.Background())
 
 	var err error

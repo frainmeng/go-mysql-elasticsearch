@@ -87,8 +87,10 @@ type BulkRequest struct {
 	Parent   string
 	Pipeline string
 
-	Data map[string]interface{}
+	Data   map[string]interface{}
 	PKData map[string]interface{}
+
+	Pos uint32
 }
 
 func (r *BulkRequest) bulk(buf *bytes.Buffer) error {
