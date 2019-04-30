@@ -75,7 +75,7 @@ func (h *eventHandler) OnRow(e *canal.RowsEvent) error {
 	if !ok {
 		return nil
 	}
-
+	log.Infof("log info [%v]", e.Header.LogPos)
 	for _, action := range rule.SkipActions {
 		if e.Action == action {
 			return nil
@@ -118,6 +118,7 @@ func (h *eventHandler) String() string {
 }
 
 func (r *River) syncLoop() {
+
 	bulkSize := r.c.BulkSize
 	if bulkSize == 0 {
 		bulkSize = 128

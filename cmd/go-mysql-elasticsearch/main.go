@@ -91,7 +91,10 @@ func main() {
 
 	done := make(chan struct{}, 1)
 	go func() {
-		r.Run()
+		err := r.Run()
+		if err != nil {
+			os.Exit(-1)
+		}
 		done <- struct{}{}
 	}()
 

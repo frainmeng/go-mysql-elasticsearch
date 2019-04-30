@@ -55,6 +55,16 @@ func (client *PGClient) Bulk(items []*BulkRequest) (err error) {
 		}
 	}
 
+	defer func() {
+		if tx != nil {
+			if err != nil {
+				tx.Rollback()
+			} else {
+				err = tx.Commit()
+			}
+		}
+	}()
+
 	for _, item := range items {
 		switch item.Action {
 		case ActionIndex:
@@ -65,16 +75,9 @@ func (client *PGClient) Bulk(items []*BulkRequest) (err error) {
 			err = client.Update(item, tx)
 		}
 		if err != nil {
-			log.Errorf("execute postgresql request error! Primary key:[%v],error:[%v]", item.ID, err)
+			log.Errorf("execute postgresql request error! Schema[%s] Table[%s], Id[%s],error:[%v]", item.Index, item.Type, item.ID, err)
 			err = errors.Trace(err)
 			break
-		}
-	}
-	if tx != nil {
-		if err != nil {
-			tx.Rollback()
-		} else {
-			err = tx.Commit()
 		}
 	}
 	return
@@ -123,7 +126,7 @@ func (client *PGClient) execInsert(request *BulkRequest, tx *sql.Tx) (err error)
 	if err != nil {
 		return errors.Trace(err)
 	}
-	log.Infof("pg insert event execute success! Primary key:[%s]", request.ID)
+	log.Infof("pg %s event execute success! Schema[%s] Table[%s], Id[%s]", request.Action, request.Index, request.Type, request.ID)
 	return
 }
 
@@ -152,7 +155,7 @@ func (client *PGClient) execDelete(request *BulkRequest, tx *sql.Tx) (err error)
 	if err != nil {
 		return errors.Trace(err)
 	}
-	log.Infof("pg delete event execute success! Primary key:[%s]", request.ID)
+	log.Infof("pg %s event execute success! Schema[%s] Table[%s], Id[%s]", request.Action, request.Index, request.Type, request.ID)
 	return
 }
 
@@ -193,6 +196,6 @@ func (client *PGClient) execUpdate(request *BulkRequest, tx *sql.Tx) (err error)
 	if err != nil {
 		return errors.Trace(err)
 	}
-	log.Infof("pg update event execute success! Primary key:[%s]", request.ID)
+	log.Infof("pg %s event execute success! Schema[%s] Table[%s], Id[%s]", request.Action, request.Index, request.Type, request.ID)
 	return
 }
