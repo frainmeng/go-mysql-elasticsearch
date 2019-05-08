@@ -11,6 +11,8 @@ import (
 	"github.com/siddontang/go-log/log"
 	"github.com/siddontang/go-mysql-elasticsearch/elastic"
 	"github.com/siddontang/go-mysql/canal"
+
+	"github.com/cactus/go-statsd-client/statsd"
 )
 
 // ErrRuleNotExist is the error if rule is not defined.
@@ -34,6 +36,8 @@ type River struct {
 	es *elastic.Client
 
 	pg *elastic.PGClient
+
+	statsdClient statsd.Statter
 
 	st *stat
 
@@ -87,6 +91,17 @@ func NewRiver(c *Config) (*River, error) {
 	pgcfg.Password = r.c.PGPassword
 	pgcfg.DBName = r.c.PGDBName
 	r.pg = elastic.NewPGClient(pgcfg)
+
+	if r.c.StatsdHost != "" && r.c.StatsdPort != 0 {
+		statsdAddr := fmt.Sprintf("%s:%v", r.c.StatsdHost, r.c.StatsdPort)
+		statsdClient, err := statsd.NewClient(statsdAddr, r.c.StatsdPreFix)
+		if err == nil {
+			r.statsdClient = statsdClient
+			log.Infof("开启statsd监控，地址：%s，前缀：%s", statsdAddr, r.c.StatsdPreFix)
+		} else {
+			log.Warnf("开启statsd监控失败：%v", err)
+		}
+	}
 
 	r.st = &stat{r: r}
 	go r.st.Run(r.c.StatAddr)

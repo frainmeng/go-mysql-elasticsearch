@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"github.com/siddontang/go/hack"
 	"reflect"
+	"strconv"
 	"strings"
 	"time"
 
@@ -37,6 +39,10 @@ type posSaver struct {
 	force bool
 }
 
+type syncTable struct {
+	schema, table string
+}
+
 type eventHandler struct {
 	r *River
 }
@@ -57,6 +63,7 @@ func (h *eventHandler) OnTableChanged(schema, table string) error {
 	if err != nil && err != ErrRuleNotExist {
 		return errors.Trace(err)
 	}
+	h.r.syncCh <- syncTable{schema, table}
 	return nil
 }
 
@@ -100,6 +107,7 @@ func (h *eventHandler) OnRow(e *canal.RowsEvent) error {
 	}
 	if len(reqs) > 0 {
 		reqs[len(reqs)-1].Pos = e.Header.LogPos
+		reqs[len(reqs)-1].Timestamp = e.Header.Timestamp
 	}
 	h.r.syncCh <- reqs
 
@@ -138,22 +146,32 @@ func (r *River) syncLoop() {
 	reqs := make([]*elastic.BulkRequest, 0, 1024)
 
 	var pos mysql.Position
+	lastMonitorTime := time.Now()
 
+	metricName := fmt.Sprintf("mysqltopg.%s.%s.delay", r.c.MyAddr, r.c.PGHost)
+	var syncTableSchema, syncTableName string
 	for {
 		needFlush := false
 		needSavePos := false
+		needSyncTable := false
 
 		select {
 		case v := <-r.syncCh:
 			switch v := v.(type) {
 			case posSaver:
 				now := time.Now()
-				if v.force || now.Sub(lastSavedTime) > 5*time.Second {
+				if v.force || now.Sub(lastSavedTime) > 3*time.Second {
 					lastSavedTime = now
 					needFlush = true
 					needSavePos = true
 					pos = v.pos
 				}
+			case syncTable:
+				needFlush = true
+				needSavePos = true
+				needSyncTable = true
+				syncTableSchema = v.schema
+				syncTableName = v.table
 			case []*elastic.BulkRequest:
 				reqs = append(reqs, v...)
 				needFlush = len(reqs) >= bulkSize
@@ -164,20 +182,30 @@ func (r *River) syncLoop() {
 			return
 		}
 
-		if needFlush && len(reqs) > 0 {
-			// TODO: retry some times?
-			if err := r.doPGBulk(reqs); err != nil {
-				log.Errorf("do pg bulk err %v, close sync", err)
-				r.cancel()
-				return
+		if needFlush {
+			if len(reqs) > 0 {
+				// TODO: retry some times?
+				if err := r.doPGBulk(reqs); err != nil {
+					log.Errorf("do pg bulk err %v, close sync", err)
+					r.cancel()
+					return
+				}
+				lastPos := reqs[len(reqs)-1].Pos
+				delaySecond := time.Now().Unix() - int64(reqs[len(reqs)-1].Timestamp)
+				if delaySecond > 0 {
+					lastMonitorTime = time.Now()
+					_ = r.statsdClient.Timing(metricName, delaySecond*1000, 1.0)
+				}
+
+				if !needSavePos && pos.Pos < lastPos {
+					pos.Pos = lastPos
+					needSavePos = true
+				}
+				reqs = reqs[0:0]
+			} else if time.Now().Sub(lastMonitorTime) > 10*time.Second {
+				lastMonitorTime = time.Now()
+				_ = r.statsdClient.Timing(metricName, 0, 1.0)
 			}
-			lastPos := reqs[len(reqs)-1].Pos
-			if !needSavePos && pos.Pos < lastPos {
-				log.Info("保存")
-				pos.Pos = lastPos
-				needSavePos = true
-			}
-			reqs = reqs[0:0]
 		}
 
 		if needSavePos {
@@ -187,6 +215,20 @@ func (r *River) syncLoop() {
 				return
 			}
 		}
+
+		if needSyncTable {
+			tableInfo, _ := r.getMysqlTable(syncTableSchema, syncTableName)
+			//fmt.Println(tableInfo)
+			rule, ok := r.rules[ruleKey(syncTableSchema, syncTableName)]
+			if ok {
+				if err := r.pg.SyncTable(tableInfo, rule.PGSchema, rule.PGTable); err != nil {
+					log.Errorf("sync table struct err: %v, close sync", err)
+					r.cancel()
+					return
+				}
+			}
+		}
+
 	}
 }
 
@@ -532,9 +574,6 @@ func (r *River) doBulk(reqs []*elastic.BulkRequest) error {
 }
 
 func (r *River) doPGBulk(reqs []*elastic.BulkRequest) error {
-	if len(reqs) == 0 {
-		return nil
-	}
 	if err := r.pg.Bulk(reqs); err != nil {
 		log.Errorf("sync docs err %v after binlog %s", err, r.canal.SyncedPosition())
 		return errors.Trace(err)
@@ -570,4 +609,42 @@ func (r *River) getFieldValue(col *schema.TableColumn, fieldType string, value i
 		fieldValue = r.makeReqColumnData(col, value)
 	}
 	return fieldValue
+}
+
+func (r *River) getMysqlTable(tableSchema, tableName string) (*elastic.TableInfo, error) {
+	result, err := r.canal.Execute(fmt.Sprintf("show full columns from `%s`.`%s`", tableSchema, tableName))
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+
+	column := make(map[string]elastic.TableColumn)
+
+	for i := 0; i < result.RowNumber(); i++ {
+		name, _ := result.GetString(i, 0)
+		colType, _ := result.GetString(i, 1)
+		collation, _ := result.GetString(i, 2)
+		isNull, _ := result.GetString(i, 3)
+		defaultValue, _ := result.GetValue(i, 5)
+		//extra, _ := result.GetString(i, 6)
+
+		var defaultV interface{}
+		switch v := defaultValue.(type) {
+		case string:
+			defaultV = v
+		case []byte:
+			defaultV = hack.String(v)
+		case int, int8, int16, int32, int64,
+			uint, uint8, uint16, uint32, uint64:
+			defaultV = fmt.Sprintf("%d", v)
+		case float32:
+			defaultV = strconv.FormatFloat(float64(v), 'f', -1, 64)
+		case float64:
+			defaultV = strconv.FormatFloat(v, 'f', -1, 64)
+		default:
+			defaultV = nil
+		}
+
+		column[name] = elastic.TableColumn{Name: name, DataType: colType, Collation: collation, DefaultValue: defaultV, IsNullAble: isNull == "YES"}
+	}
+	return &elastic.TableInfo{Schema: tableSchema, Name: tableName, Columns: column}, nil
 }

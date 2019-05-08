@@ -2,6 +2,7 @@ module github.com/siddontang/go-mysql-elasticsearch
 
 require (
 	github.com/BurntSushi/toml v0.3.1
+	github.com/cactus/go-statsd-client/statsd v0.0.0-20190501063751-9a7692639588
 	github.com/jmoiron/sqlx v1.2.0 // indirect
 	github.com/juju/errors v0.0.0-20190207033735-e65537c515d7
 	github.com/juju/loggo v0.0.0-20190212223446-d976af380377 // indirect
