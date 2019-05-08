@@ -293,7 +293,7 @@ type TableSchema struct {
 }
 
 //SyncTable 同步表结构
-func (client *PGClient) SyncTable(mysqlTableInfo *TableInfo, pgSchema string, pgTable string) error {
+func (client *PGClient) SyncTable(mysqlTableInfo *TableInfo, pgSchema string, pgTable string, skipAction []string) error {
 	//获取当前pg表结构
 	targetTableInfo, err := client.getTable(pgSchema, pgTable)
 	if err != nil {
@@ -303,7 +303,7 @@ func (client *PGClient) SyncTable(mysqlTableInfo *TableInfo, pgSchema string, pg
 	sourceTableInfo := convert(mysqlTableInfo, pgSchema, pgTable)
 
 	//获取差异
-	addColumns, dropColumns, alterColumns := getChange(sourceTableInfo, targetTableInfo)
+	addColumns, dropColumns, alterColumns := getChange(sourceTableInfo, targetTableInfo, skipAction)
 
 	sqlStatement := generateAlertSql(addColumns, dropColumns, alterColumns, pgSchema, pgTable)
 	if len(sqlStatement) == 0 {
@@ -396,7 +396,24 @@ func (client *PGClient) getTable(schema string, table string) (*TableInfo, error
 }
 
 //获取发生变化的列
-func getChange(sourceTable, targetTable *TableInfo) (addColumns, dropColumns, alterColumns []TableColumn) {
+func getChange(sourceTable, targetTable *TableInfo, skipAction []string) (addColumns, dropColumns, alterColumns []TableColumn) {
+
+	var skipAdd = false
+	var skipDrop = false
+	var skipAlter = false
+	if len(skipAction) > 0 {
+		for _, action := range skipAction {
+			switch action {
+			case "ADD":
+				skipAdd = true
+			case "DROP":
+				skipDrop = true
+			case "ALTER":
+				skipAlter = true
+			}
+		}
+	}
+
 	addColumns = make([]TableColumn, 0)
 	dropColumns = make([]TableColumn, 0)
 	alterColumns = make([]TableColumn, 0)
@@ -409,15 +426,15 @@ func getChange(sourceTable, targetTable *TableInfo) (addColumns, dropColumns, al
 	for columnName, sourceCol := range sourceTable.Columns {
 		targetCol, ok := targetColumns[columnName]
 		if ok {
-			if sourceCol.DataType != targetCol.DataType {
+			if !skipAlter && sourceCol.DataType != targetCol.DataType {
 				alterColumns = append(alterColumns, sourceCol)
 			}
 			delete(targetColumns, columnName)
-		} else {
+		} else if !skipAdd {
 			addColumns = append(addColumns, sourceCol)
 		}
 	}
-	if len(targetColumns) > 0 {
+	if !skipDrop && len(targetColumns) > 0 {
 		for _, v := range targetColumns {
 			dropColumns = append(dropColumns, v)
 		}

@@ -221,7 +221,7 @@ func (r *River) syncLoop() {
 			//fmt.Println(tableInfo)
 			rule, ok := r.rules[ruleKey(syncTableSchema, syncTableName)]
 			if ok {
-				if err := r.pg.SyncTable(tableInfo, rule.PGSchema, rule.PGTable); err != nil {
+				if err := r.pg.SyncTable(tableInfo, rule.PGSchema, rule.PGTable, rule.SkipAlterActions); err != nil {
 					log.Errorf("sync table struct err: %v, close sync", err)
 					r.cancel()
 					return

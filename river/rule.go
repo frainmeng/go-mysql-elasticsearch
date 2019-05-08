@@ -34,6 +34,8 @@ type Rule struct {
 
 	SkipActions []string `toml:"skip_actions"`
 
+	SkipAlterActions []string `toml:"skip_alter_actions"`
+
 	// Elasticsearch pipeline
 	// To pre-process documents before indexing
 	Pipeline string `toml:"pipeline"`
