@@ -612,7 +612,14 @@ func (r *River) doBulk(reqs []*elastic.BulkRequest) error {
 func (r *River) doPGBulk(reqs []*elastic.BulkRequest) error {
 
 	for _, req := range reqs {
-		if pg, ok := r.pgs[req.TargetName]; ok {
+		var pg *elastic.PGClient
+		if len(req.TargetName) > 0 {
+			pg, _ = r.pgs[req.TargetName]
+		} else {
+			pg = r.pg
+		}
+
+		if pg != nil {
 			if err := pg.Request(req); err != nil {
 				log.Errorf("sync docs err %v after binlog %s", err, r.canal.SyncedPosition())
 				return errors.Trace(err)
