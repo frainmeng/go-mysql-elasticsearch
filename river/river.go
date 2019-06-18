@@ -46,12 +46,18 @@ type River struct {
 	master *masterInfo
 
 	syncCh chan interface{}
+
+	metricPrefix string
 }
 
 // NewRiver creates the River from config
 func NewRiver(c *Config) (*River, error) {
 	r := new(River)
 
+	tmp := fmt.Sprintf("mysqltopg.%s",
+		strings.ReplaceAll(strings.ReplaceAll(c.MyAddr, ".", "_"), ":", "-"))
+	//mysqltopg.${mysql}.${pgHost}-${pgName}.${action/delay}
+	r.metricPrefix = tmp + ".%s-%s."
 	r.c = c
 	r.rules = make(map[string]*Rule)
 	r.syncCh = make(chan interface{}, 0)

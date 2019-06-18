@@ -127,9 +127,9 @@ func (h *eventHandler) OnRow(e *canal.RowsEvent) error {
 		h.r.cancel()
 		return errors.Errorf("make %s postgresql request err %v, close sync", e.Action, err)
 	}
-	if len(reqs) > 0 {
-		reqs[len(reqs)-1].Pos = e.Header.LogPos
-		reqs[len(reqs)-1].Timestamp = e.Header.Timestamp
+	for _, req := range reqs {
+		req.Pos = e.Header.LogPos
+		req.Timestamp = e.Header.Timestamp
 	}
 	h.r.syncCh <- reqs
 
@@ -170,7 +170,7 @@ func (r *River) syncLoop() {
 	var pos mysql.Position
 	lastMonitorTime := time.Now()
 
-	metricName := fmt.Sprintf("mysqltopg.%s.%s.delay", r.c.MyAddr, r.c.PGHost)
+	metricName := r.metricPrefix + ".delay"
 	var syncTableSchema, syncTableName string
 	for {
 		needFlush := false
@@ -624,6 +624,12 @@ func (r *River) doPGBulk(reqs []*elastic.BulkRequest) error {
 				log.Errorf("sync docs err %v after binlog %s", err, r.canal.SyncedPosition())
 				return errors.Trace(err)
 			}
+			metricName := fmt.Sprintf(r.metricPrefix, strings.ReplaceAll(pg.Conf.Host, ".", "_"), pg.Conf.DBName)
+			delaySecond := time.Now().Unix() - int64(reqs[len(reqs)-1].Timestamp)
+			if delaySecond >= 0 {
+				_ = r.statsdClient.Timing(metricName+"delay", delaySecond*1000, 1.0)
+			}
+			_ = r.statsdClient.Inc(metricName+req.Action, 1, 1)
 		} else {
 			err := errors.Errorf("can not find targetSource[%s] for [%s.%s]", req.Index, req.Type, req.TargetName)
 			log.Errorf("sync data error:%v", err)

@@ -22,7 +22,8 @@ const (
 )
 
 type PGClient struct {
-	db *sql.DB
+	db   *sql.DB
+	Conf *PGClientConfig
 }
 type PGClientConfig struct {
 	Host     string
@@ -34,6 +35,7 @@ type PGClientConfig struct {
 
 func NewPGClient(conf *PGClientConfig) *PGClient {
 	c := new(PGClient)
+	c.Conf = conf
 	pgSqlInfo := fmt.Sprintf("host=%s port=%d user=%s "+"password=%s dbname=%s sslmode=disable", conf.Host, conf.Port, conf.User, conf.Password, conf.DBName)
 	db, err := sql.Open("postgres", pgSqlInfo)
 	if err != nil {
