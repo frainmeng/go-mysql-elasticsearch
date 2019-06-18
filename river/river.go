@@ -55,7 +55,7 @@ func NewRiver(c *Config) (*River, error) {
 	r := new(River)
 
 	tmp := fmt.Sprintf("mysqltopg.%s",
-		strings.Replace(strings.ReplaceAll(c.MyAddr, ".", "_"), ":", "-", -1))
+		strings.Replace(strings.Replace(c.MyAddr, ".", "_", -1), ":", "-", -1))
 	//mysqltopg.${mysql}.${pgHost}-${pgName}.${action/delay}
 	r.metricPrefix = tmp + ".%s-%s."
 	r.c = c
