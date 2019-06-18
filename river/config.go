@@ -14,6 +14,16 @@ type SourceConfig struct {
 	Tables []string `toml:"tables"`
 }
 
+// TargetConfig is the configs for target
+type TargetConfig struct {
+	PGName     string `toml:"pg_name"`
+	PGHost     string `toml:"pg_host"`
+	PGPort     int16  `toml:"pg_port"`
+	PGUser     string `toml:"pg_user"`
+	PGPassword string `toml:"pg_pass"`
+	PGDBName   string `toml:"pg_dbname"`
+}
+
 // Config is the configuration
 type Config struct {
 	MyAddr     string `toml:"my_addr"`
@@ -46,6 +56,8 @@ type Config struct {
 	SkipMasterData bool   `toml:"skip_master_data"`
 
 	Sources []SourceConfig `toml:"source"`
+
+	Targets []TargetConfig `toml:"target"`
 
 	Rules []*Rule `toml:"rule"`
 

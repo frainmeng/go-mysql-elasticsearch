@@ -18,6 +18,7 @@ type Rule struct {
 	Parent string   `toml:"parent"`
 	ID     []string `toml:"id"`
 
+	PGName   string `toml:"pg_name"`
 	PGSchema string `toml:"pg_schema"`
 	PGTable  string `toml:"pg_table"`
 

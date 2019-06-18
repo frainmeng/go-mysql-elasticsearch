@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/siddontang/go/hack"
 	"reflect"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -67,7 +68,27 @@ func (h *eventHandler) OnTableChanged(schema, table string) error {
 	return nil
 }
 
-func (h *eventHandler) OnDDL(nextPos mysql.Position, _ *replication.QueryEvent) error {
+func (h *eventHandler) OnDDL(nextPos mysql.Position, e *replication.QueryEvent) error {
+	dll := string(e.Query)
+	fmt.Println(dll)
+
+	expAlterTable := regexp.MustCompile("(?i)^ALTER\\sTABLE\\s.*?`{0,1}(.*?)`{0,1}\\.{0,1}`{0,1}([^`\\.]+?)`{0,1}\\s.*")
+	mb := expAlterTable.FindSubmatch(e.Query)
+
+	mbLen := len(mb)
+	if mbLen > 0 {
+		var db string
+		if len(mb[mbLen-2]) == 0 {
+			db = string(e.Schema)
+		} else {
+			db = string(mb[mbLen-2])
+		}
+		table := string(mb[mbLen-1])
+
+		fmt.Println(db)
+		fmt.Println(table)
+	}
+
 	h.r.syncCh <- posSaver{nextPos, true}
 	return h.r.ctx.Err()
 }
@@ -221,10 +242,13 @@ func (r *River) syncLoop() {
 			//fmt.Println(tableInfo)
 			rule, ok := r.rules[ruleKey(syncTableSchema, syncTableName)]
 			if ok {
-				if err := r.pg.SyncTable(tableInfo, rule.PGSchema, rule.PGTable, rule.SkipAlterActions); err != nil {
-					log.Errorf("sync table struct err: %v, close sync", err)
-					r.cancel()
-					return
+				pg, ok := r.pgs[rule.PGName]
+				if ok {
+					if err := pg.SyncTable(tableInfo, rule.PGSchema, rule.PGTable, rule.SkipAlterActions); err != nil {
+						log.Errorf("sync table struct err: %v, close sync", err)
+						r.cancel()
+						return
+					}
 				}
 			}
 		}

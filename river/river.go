@@ -37,6 +37,8 @@ type River struct {
 
 	pg *elastic.PGClient
 
+	pgs map[string]*elastic.PGClient
+
 	statsdClient statsd.Statter
 
 	st *stat
@@ -83,6 +85,19 @@ func NewRiver(c *Config) (*River, error) {
 	cfg.Password = r.c.ESPassword
 	cfg.HTTPS = r.c.ESHttps
 	r.es = elastic.NewClient(cfg)
+
+	if r.c.Targets != nil && len(r.c.Targets) > 0 {
+		r.pgs = make(map[string]*elastic.PGClient)
+		for _, target := range r.c.Targets {
+			pgCfg := new(elastic.PGClientConfig)
+			pgCfg.Host = target.PGHost
+			pgCfg.Port = target.PGPort
+			pgCfg.User = target.PGUser
+			pgCfg.Password = target.PGPassword
+			pgCfg.DBName = target.PGDBName
+			r.pgs[target.PGName] = elastic.NewPGClient(pgCfg)
+		}
+	}
 
 	pgcfg := new(elastic.PGClientConfig)
 	pgcfg.Host = r.c.PGHost
