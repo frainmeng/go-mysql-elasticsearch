@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	insertSqlTemplate = "INSERT INTO \"%s\".\"%s\"(%s) VALUES (%s);"
+	insertSqlTemplate = "INSERT INTO \"%s\".\"%s\"(%s) VALUES (%s) ON CONFLICT (%s) DO UPDATE SET %s;"
 	updateSqlTemplate = "UPDATE \"%s\".\"%s\" SET %s WHERE %s;"
 	deleteSqlTemplate = "DELETE FROM \"%s\".\"%s\" WHERE %s;"
 
@@ -63,7 +63,7 @@ func (client *PGClient) Bulk(items []*BulkRequest) (err error) {
 	defer func() {
 		if tx != nil {
 			if err != nil {
-				tx.Rollback()
+				_ = tx.Rollback()
 			} else {
 				err = tx.Commit()
 			}
@@ -88,6 +88,22 @@ func (client *PGClient) Bulk(items []*BulkRequest) (err error) {
 	return
 }
 
+func (client *PGClient) Request(item *BulkRequest) (err error) {
+	switch item.Action {
+	case ActionIndex:
+		err = client.Insert(item, nil)
+	case ActionDelete:
+		err = client.Delete(item, nil)
+	case ActionUpdate:
+		err = client.Update(item, nil)
+	}
+	if err != nil {
+		log.Errorf("execute postgresql request error! Schema[%s] Table[%s], Id[%s],error:[%v]", item.Index, item.Type, item.ID, err)
+		err = errors.Trace(err)
+	}
+	return
+}
+
 func (client *PGClient) Insert(request *BulkRequest, tx *sql.Tx) error {
 	return client.execInsert(request, tx)
 }
@@ -101,6 +117,8 @@ func (client *PGClient) Update(request *BulkRequest, tx *sql.Tx) error {
 }
 
 func (client *PGClient) execInsert(request *BulkRequest, tx *sql.Tx) (err error) {
+	upsertExps := make([]string, 0, len(request.Data))
+	conflictExps := make([]string, 0, len(request.PKData))
 	columns := make([]string, 0, len(request.Data))
 	valuePlaceholders := make([]string, 0, len(request.Data))
 	values := make([]interface{}, 0, len(request.Data))
@@ -113,7 +131,21 @@ func (client *PGClient) execInsert(request *BulkRequest, tx *sql.Tx) (err error)
 		i++
 	}
 
-	insertSql := fmt.Sprintf(insertSqlTemplate, request.Index, request.Type, strings.Join(columns, ","), strings.Join(valuePlaceholders, ","))
+	//组装更新数据
+	for key, _ := range request.Data {
+		upsertExps = append(upsertExps, key+"=EXCLUDED."+key)
+	}
+	//组装条件数据（主键）
+	for key, _ := range request.PKData {
+		conflictExps = append(conflictExps, key)
+	}
+	insertSql := fmt.Sprintf(insertSqlTemplate,
+		request.Index,
+		request.Type,
+		strings.Join(columns, ","),
+		strings.Join(valuePlaceholders, ","),
+		strings.Join(conflictExps, ","),
+		strings.Join(upsertExps, ","))
 	//创建stmt
 	var stmt *sql.Stmt
 	if tx != nil {
@@ -127,11 +159,11 @@ func (client *PGClient) execInsert(request *BulkRequest, tx *sql.Tx) (err error)
 	}
 	//关闭stmt
 	defer stmt.Close()
-	_, err = stmt.Exec(values...)
+	result, err := stmt.Exec(values...)
 	if err != nil {
 		return errors.Trace(err)
 	}
-	log.Infof("pg %s event execute success! Schema[%s] Table[%s], Id[%s]", request.Action, request.Index, request.Type, request.ID)
+	log.Infof("pg %s event execute success! Schema[%s] Table[%s], Id[%s],result[%v]", request.Action, request.Index, request.Type, request.ID, result)
 	return
 }
 

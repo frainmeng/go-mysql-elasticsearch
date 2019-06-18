@@ -279,8 +279,8 @@ func (r *River) prepareRule() error {
 					return errors.Errorf("wildcard table for %s.%s is not defined in source", rule.Schema, rule.Table)
 				}
 
-				if len(rule.Index) == 0 {
-					return errors.Errorf("wildcard table rule %s.%s must have a index, can not empty", rule.Schema, rule.Table)
+				if len(rule.PGSchema) == 0 {
+					return errors.Errorf("wildcard table rule %s.%s must have a pg_schema, can not empty", rule.Schema, rule.Table)
 				}
 
 				rule.prepare()
@@ -292,6 +292,13 @@ func (r *River) prepareRule() error {
 					rr.Parent = rule.Parent
 					rr.ID = rule.ID
 					rr.FieldMapping = rule.FieldMapping
+
+					rr.PGName = rule.PGName
+					rr.PGSchema = rule.PGSchema
+					rr.PGTable = rule.PGTable
+					rr.SkipActions = rule.SkipActions
+					rr.SkipAlterActions = rule.SkipAlterActions
+
 				}
 			} else {
 				key := ruleKey(rule.Schema, rule.Table)

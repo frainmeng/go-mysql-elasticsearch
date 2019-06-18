@@ -90,8 +90,9 @@ type BulkRequest struct {
 	Data   map[string]interface{}
 	PKData map[string]interface{}
 
-	Pos       uint32
-	Timestamp uint32
+	Pos        uint32
+	Timestamp  uint32
+	TargetName string
 }
 
 func (r *BulkRequest) bulk(buf *bytes.Buffer) error {

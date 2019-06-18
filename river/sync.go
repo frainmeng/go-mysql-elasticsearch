@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/siddontang/go/hack"
+	"os"
 	"reflect"
 	"regexp"
 	"strconv"
@@ -208,7 +209,9 @@ func (r *River) syncLoop() {
 				// TODO: retry some times?
 				if err := r.doPGBulk(reqs); err != nil {
 					log.Errorf("do pg bulk err %v, close sync", err)
+					_ = r.master.Save(pos)
 					r.cancel()
+					os.Exit(1)
 					return
 				}
 				lastPos := reqs[len(reqs)-1].Pos
@@ -273,16 +276,21 @@ func (r *River) makeRequest(rule *Rule, action string, rows [][]interface{}) ([]
 			}
 		}
 
-		req := &elastic.BulkRequest{Index: rule.PGSchema, Type: rule.PGTable, ID: id, Parent: parentID, Pipeline: rule.Pipeline}
+		pgTable := rule.Table
+		if len(rule.PGTable) > 0 {
+			pgTable = rule.PGTable
+		}
 
+		req := &elastic.BulkRequest{TargetName: rule.PGName, Index: rule.PGSchema, Type: pgTable, ID: id, Parent: parentID, Pipeline: rule.Pipeline}
 		if action == canal.DeleteAction {
 			r.makeDeleteReqData(req, rule, values)
 			r.st.DeleteNum.Add(1)
 		} else {
+			//主键数据
+			r.makeDeleteReqData(req, rule, values)
 			r.makeInsertReqData(req, rule, values)
 			r.st.InsertNum.Add(1)
 		}
-
 		reqs = append(reqs, req)
 	}
 
@@ -326,13 +334,17 @@ func (r *River) makeUpdateRequest(rule *Rule, rows [][]interface{}) ([]*elastic.
 			}
 		}
 
-		req := &elastic.BulkRequest{Index: rule.PGSchema, Type: rule.PGTable, ID: beforeID, Parent: beforeParentID}
+		pgTable := rule.Table
+		if len(rule.PGTable) > 0 {
+			pgTable = rule.PGTable
+		}
 
+		req := &elastic.BulkRequest{TargetName: rule.PGName, Index: rule.PGSchema, Type: pgTable, ID: beforeID, Parent: beforeParentID}
 		if beforeID != afterID || beforeParentID != afterParentID {
 			req.Action = elastic.ActionDelete
 			reqs = append(reqs, req)
 
-			req = &elastic.BulkRequest{Index: rule.Index, Type: rule.Type, ID: afterID, Parent: afterParentID, Pipeline: rule.Pipeline}
+			req = &elastic.BulkRequest{TargetName: rule.PGName, Index: rule.PGSchema, Type: pgTable, ID: afterID, Parent: afterParentID, Pipeline: rule.Pipeline}
 			r.makeInsertReqData(req, rule, rows[i+1])
 
 			r.st.DeleteNum.Add(1)
@@ -598,10 +610,24 @@ func (r *River) doBulk(reqs []*elastic.BulkRequest) error {
 }
 
 func (r *River) doPGBulk(reqs []*elastic.BulkRequest) error {
-	if err := r.pg.Bulk(reqs); err != nil {
-		log.Errorf("sync docs err %v after binlog %s", err, r.canal.SyncedPosition())
-		return errors.Trace(err)
+
+	for _, req := range reqs {
+		if pg, ok := r.pgs[req.TargetName]; ok {
+			if err := pg.Request(req); err != nil {
+				log.Errorf("sync docs err %v after binlog %s", err, r.canal.SyncedPosition())
+				return errors.Trace(err)
+			}
+		} else {
+			err := errors.Errorf("can not find targetSource[%s] for [%s.%s]", req.Index, req.Type, req.TargetName)
+			log.Errorf("sync data error:%v", err)
+			return err
+		}
 	}
+
+	//if err := r.pg.Bulk(reqs); err != nil {
+	//	log.Errorf("sync docs err %v after binlog %s", err, r.canal.SyncedPosition())
+	//	return errors.Trace(err)
+	//}
 	return nil
 }
 
