@@ -624,7 +624,7 @@ func (r *River) doPGBulk(reqs []*elastic.BulkRequest) error {
 				log.Errorf("sync docs err %v after binlog %s", err, r.canal.SyncedPosition())
 				return errors.Trace(err)
 			}
-			metricName := fmt.Sprintf(r.metricPrefix, strings.ReplaceAll(pg.Conf.Host, ".", "_"), pg.Conf.DBName)
+			metricName := fmt.Sprintf(r.metricPrefix, strings.Replace(pg.Conf.Host, ".", "_", -1), pg.Conf.DBName)
 			delaySecond := time.Now().Unix() - int64(reqs[len(reqs)-1].Timestamp)
 			if delaySecond >= 0 {
 				_ = r.statsdClient.Timing(metricName+"delay", delaySecond*1000, 1.0)
