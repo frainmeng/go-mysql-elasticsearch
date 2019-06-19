@@ -245,8 +245,14 @@ func (r *River) syncLoop() {
 			//fmt.Println(tableInfo)
 			rule, ok := r.rules[ruleKey(syncTableSchema, syncTableName)]
 			if ok {
-				pg, ok := r.pgs[rule.PGName]
-				if ok {
+				var pg *elastic.PGClient
+				if len(rule.PGName) > 0 {
+					pg, _ = r.pgs[rule.PGName]
+				} else {
+					pg = r.pg
+				}
+
+				if pg != nil {
 					if err := pg.SyncTable(tableInfo, rule.PGSchema, rule.PGTable, rule.SkipAlterActions); err != nil {
 						log.Errorf("sync table struct err: %v, close sync", err)
 						r.cancel()
