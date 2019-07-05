@@ -98,13 +98,11 @@ func NewRiver(c *Config) (*River, error) {
 		c.ConcurrentSize = 1
 	}
 
-	r.posChan = make(chan posSaver,c.ConcurrentAckWin)
+	r.posChan = make(chan posSaver, c.ConcurrentAckWin)
 	//ack 队列
-	r.ackChan = make(chan *ack,c.ConcurrentAckWin)
+	r.ackChan = make(chan *ack, c.ConcurrentAckWin)
 	//数据chan，每个线程一个
-	r.dataChans= make([]chan *elastic.BulkRequest,c.ConcurrentSize)
-
-
+	r.dataChans = make([]chan *elastic.BulkRequest, c.ConcurrentSize)
 
 	cfg := new(elastic.ClientConfig)
 	cfg.Addr = r.c.ESAddr
@@ -112,7 +110,6 @@ func NewRiver(c *Config) (*River, error) {
 	cfg.Password = r.c.ESPassword
 	cfg.HTTPS = r.c.ESHttps
 	r.es = elastic.NewClient(cfg)
-
 
 	if r.c.Targets != nil && len(r.c.Targets) > 0 {
 		r.pgs = make(map[string]*elastic.PGClient)
@@ -136,9 +133,6 @@ func NewRiver(c *Config) (*River, error) {
 	pgcfg.DBName = r.c.PGDBName
 	pgcfg.MaxConn = r.c.MaxConn
 	r.pg = elastic.NewPGClient(pgcfg)
-
-
-
 
 	if r.c.StatsdHost != "" && r.c.StatsdPort != 0 {
 		statsdAddr := fmt.Sprintf("%s:%v", r.c.StatsdHost, r.c.StatsdPort)
@@ -372,19 +366,17 @@ func ruleKey(schema string, table string) string {
 // Run syncs the data from MySQL and inserts to ES.
 func (r *River) Run() error {
 
-	dataChanLen := r.c.ConcurrentAckWin/r.c.ConcurrentSize
+	dataChanLen := r.c.ConcurrentAckWin / r.c.ConcurrentSize
 	if dataChanLen <= 0 {
 		dataChanLen = 1
 	}
 	//启动数据处理线程
 	for i := 0; i < len(r.dataChans); i++ {
-		r.dataChans[i] = make(chan *elastic.BulkRequest,r.)
-		go r.syncData(r.dataChans[i],r.ackChan)
+		r.dataChans[i] = make(chan *elastic.BulkRequest, dataChanLen)
+		go r.syncData(r.dataChans[i], r.ackChan)
 	}
 
-	go r.posProcessor(r.posChan,r.ackChan)
-
-
+	go r.posProcessor(r.posChan, r.ackChan)
 
 	r.wg.Add(1)
 	go r.syncLoop()
