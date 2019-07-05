@@ -93,6 +93,7 @@ type BulkRequest struct {
 	Pos        uint32
 	Timestamp  uint32
 	TargetName string
+	ReqId      uint64
 }
 
 func (r *BulkRequest) bulk(buf *bytes.Buffer) error {

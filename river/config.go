@@ -22,6 +22,7 @@ type TargetConfig struct {
 	PGUser     string `toml:"pg_user"`
 	PGPassword string `toml:"pg_pass"`
 	PGDBName   string `toml:"pg_dbname"`
+	MaxConn    int    `toml:"pg_maxconn"`
 }
 
 // Config is the configuration
@@ -41,6 +42,7 @@ type Config struct {
 	PGUser     string `toml:"pg_user"`
 	PGPassword string `toml:"pg_pass"`
 	PGDBName   string `toml:"pg_dbname"`
+	MaxConn    int    `toml:"pg_maxconn"`
 
 	StatsdHost   string `toml:"statsd_host"`
 	StatsdPort   int    `toml:"statsd_port"`
@@ -66,6 +68,9 @@ type Config struct {
 	FlushBulkTime TomlDuration `toml:"flush_bulk_time"`
 
 	SkipNoPkTable bool `toml:"skip_no_pk_table"`
+
+	ConcurrentSize   int `toml:"concurrent_size"`
+	ConcurrentAckWin int `toml:"concurrent_ack_win"`
 }
 
 // NewConfigWithFile creates a Config from file.

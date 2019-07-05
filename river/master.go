@@ -97,3 +97,38 @@ func (m *masterInfo) Close() error {
 
 	return m.Save(pos)
 }
+
+func (m *masterInfo) SetPos(pos mysql.Position) {
+	m.Lock()
+	defer m.Unlock()
+	m.Name = pos.Name
+	m.Pos = pos.Pos
+}
+func (m *masterInfo) SavePos() error {
+	log.Infof("save position [%s,%v]", m.Name, m.Pos)
+
+	m.Lock()
+	defer m.Unlock()
+
+	if len(m.filePath) == 0 {
+		return nil
+	}
+
+	n := time.Now()
+	if n.Sub(m.lastSaveTime) < time.Second {
+		return nil
+	}
+
+	m.lastSaveTime = n
+	var buf bytes.Buffer
+	e := toml.NewEncoder(&buf)
+
+	e.Encode(m)
+
+	var err error
+	if err = ioutil2.WriteFileAtomic(m.filePath, buf.Bytes(), 0644); err != nil {
+		log.Errorf("canal save master info to file %s err %v", m.filePath, err)
+	}
+
+	return errors.Trace(err)
+}

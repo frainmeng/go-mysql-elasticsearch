@@ -31,6 +31,7 @@ type PGClientConfig struct {
 	User     string
 	Password string
 	DBName   string
+	MaxConn  int
 }
 
 func NewPGClient(conf *PGClientConfig) *PGClient {
@@ -41,7 +42,8 @@ func NewPGClient(conf *PGClientConfig) *PGClient {
 	if err != nil {
 		panic(err)
 	}
-
+	db.SetMaxOpenConns(conf.MaxConn)
+	db.SetMaxIdleConns(conf.MaxConn)
 	c.db = db
 	return c
 }

@@ -48,6 +48,12 @@ type River struct {
 	syncCh chan interface{}
 
 	metricPrefix string
+
+	posChan chan posSaver
+
+	ackChan chan *ack
+
+	dataChans []chan *elastic.BulkRequest
 }
 
 // NewRiver creates the River from config
@@ -85,12 +91,28 @@ func NewRiver(c *Config) (*River, error) {
 		return nil, errors.Trace(err)
 	}
 
+	if c.ConcurrentAckWin <= 0 {
+		c.ConcurrentAckWin = 1
+	}
+	if c.ConcurrentSize <= 0 {
+		c.ConcurrentSize = 1
+	}
+
+	r.posChan = make(chan posSaver,c.ConcurrentAckWin)
+	//ack 队列
+	r.ackChan = make(chan *ack,c.ConcurrentAckWin)
+	//数据chan，每个线程一个
+	r.dataChans= make([]chan *elastic.BulkRequest,c.ConcurrentSize)
+
+
+
 	cfg := new(elastic.ClientConfig)
 	cfg.Addr = r.c.ESAddr
 	cfg.User = r.c.ESUser
 	cfg.Password = r.c.ESPassword
 	cfg.HTTPS = r.c.ESHttps
 	r.es = elastic.NewClient(cfg)
+
 
 	if r.c.Targets != nil && len(r.c.Targets) > 0 {
 		r.pgs = make(map[string]*elastic.PGClient)
@@ -101,6 +123,7 @@ func NewRiver(c *Config) (*River, error) {
 			pgCfg.User = target.PGUser
 			pgCfg.Password = target.PGPassword
 			pgCfg.DBName = target.PGDBName
+			pgCfg.MaxConn = target.MaxConn
 			r.pgs[target.PGName] = elastic.NewPGClient(pgCfg)
 		}
 	}
@@ -111,7 +134,11 @@ func NewRiver(c *Config) (*River, error) {
 	pgcfg.User = r.c.PGUser
 	pgcfg.Password = r.c.PGPassword
 	pgcfg.DBName = r.c.PGDBName
+	pgcfg.MaxConn = r.c.MaxConn
 	r.pg = elastic.NewPGClient(pgcfg)
+
+
+
 
 	if r.c.StatsdHost != "" && r.c.StatsdPort != 0 {
 		statsdAddr := fmt.Sprintf("%s:%v", r.c.StatsdHost, r.c.StatsdPort)
@@ -344,6 +371,21 @@ func ruleKey(schema string, table string) string {
 
 // Run syncs the data from MySQL and inserts to ES.
 func (r *River) Run() error {
+
+	dataChanLen := r.c.ConcurrentAckWin/r.c.ConcurrentSize
+	if dataChanLen <= 0 {
+		dataChanLen = 1
+	}
+	//启动数据处理线程
+	for i := 0; i < len(r.dataChans); i++ {
+		r.dataChans[i] = make(chan *elastic.BulkRequest,r.)
+		go r.syncData(r.dataChans[i],r.ackChan)
+	}
+
+	go r.posProcessor(r.posChan,r.ackChan)
+
+
+
 	r.wg.Add(1)
 	go r.syncLoop()
 

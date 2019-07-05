@@ -3,6 +3,7 @@ package river
 import (
 	"bytes"
 	"fmt"
+	"github.com/BurntSushi/toml"
 	"net"
 	"net/http"
 	"net/http/pprof"
@@ -62,6 +63,12 @@ func (s *stat) Run(addr string) {
 	mux := http.NewServeMux()
 	mux.Handle("/stat", s)
 	mux.Handle("/debug/pprof/", http.HandlerFunc(pprof.Index))
+	mux.HandleFunc("/config", func(w http.ResponseWriter, r *http.Request) {
+		var buf bytes.Buffer
+		e := toml.NewEncoder(&buf)
+		e.Encode(s.r.c)
+		w.Write(buf.Bytes())
+	})
 	srv.Handler = mux
 
 	srv.Serve(s.l)
