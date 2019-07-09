@@ -107,5 +107,4 @@ func main() {
 
 	r.Close()
 	<-done
-	log.Info("process exited")
 }

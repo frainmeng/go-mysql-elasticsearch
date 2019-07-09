@@ -167,7 +167,7 @@ func (client *PGClient) execInsert(request *BulkRequest, tx *sql.Tx) (err error)
 	if err != nil {
 		return errors.Trace(err)
 	}
-	log.Infof("pg %s event execute success! Schema[%s] Table[%s], Id[%s],result[%v]", request.Action, request.Index, request.Type, request.ID, result)
+	log.Infof("pg %s event execute success! Schema[%s] Table[%s], Id[%s],result[%v],reqId[%v]", request.Action, request.Index, request.Type, request.ID, result, request.ReqId)
 	return
 }
 
@@ -192,11 +192,11 @@ func (client *PGClient) execDelete(request *BulkRequest, tx *sql.Tx) (err error)
 		return errors.Trace(err)
 	}
 	defer stmt.Close()
-	_, err = stmt.Exec(whereValues...)
+	result, err := stmt.Exec(whereValues...)
 	if err != nil {
 		return errors.Trace(err)
 	}
-	log.Infof("pg %s event execute success! Schema[%s] Table[%s], Id[%s]", request.Action, request.Index, request.Type, request.ID)
+	log.Infof("pg %s event execute success! Schema[%s] Table[%s], Id[%s],result[%v],reqId[%v]", request.Action, request.Index, request.Type, request.ID, result, request.ReqId)
 	return
 }
 
@@ -233,11 +233,11 @@ func (client *PGClient) execUpdate(request *BulkRequest, tx *sql.Tx) (err error)
 	}
 	//关闭stmt
 	defer stmt.Close()
-	_, err = stmt.Exec(values...)
+	result, err := stmt.Exec(values...)
 	if err != nil {
 		return errors.Trace(err)
 	}
-	log.Infof("pg %s event execute success! Schema[%s] Table[%s], Id[%s]", request.Action, request.Index, request.Type, request.ID)
+	log.Infof("pg %s event execute success! Schema[%s] Table[%s], Id[%s],result[%v],reqId[%v]", request.Action, request.Index, request.Type, request.ID, result, request.ReqId)
 	return
 }
 

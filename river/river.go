@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/juju/errors"
 	"github.com/siddontang/go-log/log"
@@ -408,7 +409,20 @@ func (r *River) Close() {
 
 	r.master.Close()
 
-	r.wg.Wait()
+	done := make(chan interface{})
+	go func() {
+		r.wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		log.Info("process exited")
+	case <-time.After(3000 * time.Millisecond):
+		log.Info("process exited after 3 seconds")
+		//syscall.Exit(0)
+		//done <- struct{}{}
+	}
 }
 
 func isValidTables(tables []string) bool {
