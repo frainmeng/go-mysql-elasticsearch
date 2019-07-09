@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -66,7 +67,7 @@ func NewRiver(c *Config) (*River, error) {
 	r.metricPrefix = tmp + ".%s-%s."
 	r.c = c
 	r.rules = make(map[string]*Rule)
-	r.syncCh = make(chan interface{}, 0)
+	r.syncCh = make(chan interface{}, 1024)
 	r.ctx, r.cancel = context.WithCancel(context.Background())
 
 	var err error
@@ -120,7 +121,7 @@ func NewRiver(c *Config) (*River, error) {
 			pgCfg.User = target.PGUser
 			pgCfg.Password = target.PGPassword
 			pgCfg.DBName = target.PGDBName
-			pgCfg.MaxConn = target.MaxConn
+			pgCfg.MaxConn = r.c.ConcurrentSize
 			r.pgs[target.PGName] = elastic.NewPGClient(pgCfg)
 		}
 	}
@@ -131,7 +132,7 @@ func NewRiver(c *Config) (*River, error) {
 	pgcfg.User = r.c.PGUser
 	pgcfg.Password = r.c.PGPassword
 	pgcfg.DBName = r.c.PGDBName
-	pgcfg.MaxConn = r.c.MaxConn
+	pgcfg.MaxConn = r.c.ConcurrentSize
 	r.pg = elastic.NewPGClient(pgcfg)
 
 	if r.c.StatsdHost != "" && r.c.StatsdPort != 0 {
@@ -322,7 +323,7 @@ func (r *River) prepareRule() error {
 
 					rr.PGName = rule.PGName
 					rr.PGSchema = rule.PGSchema
-					rr.PGTable = rule.PGTable
+					rr.PGTable = table
 					rr.SkipActions = rule.SkipActions
 					rr.SkipAlterActions = rule.SkipAlterActions
 
@@ -373,9 +374,10 @@ func (r *River) Run() error {
 	//启动数据处理线程
 	for i := 0; i < len(r.dataChans); i++ {
 		r.dataChans[i] = make(chan *elastic.BulkRequest, dataChanLen)
-		go r.syncData(r.dataChans[i], r.ackChan)
+		go r.syncData(r.dataChans[i], r.ackChan, strconv.Itoa(i))
 	}
-
+	//position 处理线程
+	r.wg.Add(1)
 	go r.posProcessor(r.posChan, r.ackChan)
 
 	r.wg.Add(1)
@@ -384,6 +386,7 @@ func (r *River) Run() error {
 	pos := r.master.Position()
 	if err := r.canal.RunFrom(pos); err != nil {
 		log.Errorf("start canal err %v", err)
+		r.cancel()
 		return errors.Trace(err)
 	}
 

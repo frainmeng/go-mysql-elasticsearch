@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
+	"github.com/siddontang/go-mysql-elasticsearch/util"
 	"io/ioutil"
 	"net/http"
 	"net/url"
@@ -94,6 +95,11 @@ type BulkRequest struct {
 	Timestamp  uint32
 	TargetName string
 	ReqId      uint64
+}
+
+func (r *BulkRequest) Hash() int {
+	key := r.TargetName + "_" + r.Index + "_" + r.Type + "_" + r.ID
+	return util.Hash(key)
 }
 
 func (r *BulkRequest) bulk(buf *bytes.Buffer) error {

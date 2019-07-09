@@ -91,9 +91,9 @@ func main() {
 
 	done := make(chan struct{}, 1)
 	go func() {
-		err := r.Run()
+		err = r.Run()
 		if err != nil {
-			os.Exit(-1)
+			log.Error("start failed:", err)
 		}
 		done <- struct{}{}
 	}()
@@ -107,4 +107,5 @@ func main() {
 
 	r.Close()
 	<-done
+	log.Info("process exited")
 }

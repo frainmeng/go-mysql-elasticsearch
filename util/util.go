@@ -1,10 +1,12 @@
-package river
+package util
 
 import (
 	"hash/crc32"
 	"sync"
 	"time"
 )
+
+const MAX_REQ_ID = ^uint64(0)
 
 func Hash(s string) int {
 	v := int(crc32.ChecksumIEEE([]byte(s)))

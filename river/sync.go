@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"github.com/siddontang/go-mysql-elasticsearch/util"
 	"github.com/siddontang/go/hack"
 	"os"
 	"reflect"
@@ -170,148 +171,101 @@ func (r *River) syncLoop() {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	defer r.wg.Done()
-
-	lastSavedTime := time.Now()
-	reqs := make([]*elastic.BulkRequest, 0, 1024)
-
 	pos := mysql.Position{Name: r.master.Name, Pos: r.master.Pos}
-	lastMonitorTime := time.Now()
-
-	metricName := r.metricPrefix + ".delay"
-	var syncTableSchema, syncTableName string
+	reqId := uint64(0)
 	for {
-		needFlush := false
-		needSavePos := false
-		needSyncTable := false
-
 		select {
 		case v := <-r.syncCh:
 			switch v := v.(type) {
 			case posSaver:
-				now := time.Now()
-				if v.force || now.Sub(lastSavedTime) > 3*time.Second {
-					lastSavedTime = now
-					needFlush = true
-					needSavePos = true
-					pos = v.pos
-				}
-
+				r.posChan <- v
+				pos = v.pos
 			case syncTable:
-				needFlush = true
-				needSavePos = true
-				needSyncTable = true
-				syncTableSchema = v.schema
-				syncTableName = v.table
+				r.syncTableStructure(v.schema, v.table)
 			case []*elastic.BulkRequest:
-				reqs = append(reqs, v...)
-				needFlush = len(reqs) >= bulkSize
+				for _, req := range v {
+					reqId++
+					//重置 reqId
+					if reqId == util.MAX_REQ_ID {
+						reqId = uint64(0)
+					}
+					//position
+					pos.Pos = req.Pos
+					posNow := mysql.Position{
+						Name: string(pos.Name),
+						Pos:  uint32(pos.Pos),
+					}
+					//pos chan
+					r.posChan <- posSaver{posNow, false, reqId}
+					//set reqId
+					req.ReqId = reqId
+					//data chan
+					r.dataChans[req.Hash()%r.c.ConcurrentSize] <- req
+				}
 			}
-		case <-ticker.C:
-			needFlush = true
 		case <-r.ctx.Done():
 			return
 		}
-
-		if needFlush {
-			if len(reqs) > 0 {
-				// TODO: retry some times?
-				if err := r.doPGBulk(reqs); err != nil {
-					log.Errorf("do pg bulk err %v, close sync", err)
-					_ = r.master.Save(pos)
-					r.cancel()
-					os.Exit(1)
-					return
-				}
-				lastPos := reqs[len(reqs)-1].Pos
-				delaySecond := time.Now().Unix() - int64(reqs[len(reqs)-1].Timestamp)
-				if delaySecond > 0 {
-					lastMonitorTime = time.Now()
-					_ = r.statsdClient.Timing(metricName, delaySecond*1000, 1.0)
-				}
-
-				if !needSavePos && pos.Pos < lastPos {
-					pos.Pos = lastPos
-					needSavePos = true
-				}
-				reqs = reqs[0:0]
-			} else if time.Now().Sub(lastMonitorTime) > 10*time.Second {
-				lastMonitorTime = time.Now()
-				_ = r.statsdClient.Timing(metricName, 0, 1.0)
-			}
-		}
-
-		if needSavePos {
-			if err := r.master.Save(pos); err != nil {
-				log.Errorf("save sync position %s err %v, close sync", pos, err)
-				r.cancel()
-				return
-			}
-		}
-
-		if needSyncTable {
-			tableInfo, _ := r.getMysqlTable(syncTableSchema, syncTableName)
-			//fmt.Println(tableInfo)
-			rule, ok := r.rules[ruleKey(syncTableSchema, syncTableName)]
-			if ok {
-				var pg *elastic.PGClient
-				if len(rule.PGName) > 0 {
-					pg, _ = r.pgs[rule.PGName]
-				} else {
-					pg = r.pg
-				}
-
-				if pg != nil {
-					if err := pg.SyncTable(tableInfo, rule.PGSchema, rule.PGTable, rule.SkipAlterActions); err != nil {
-						log.Errorf("sync table struct err: %v, close sync", err)
-						r.cancel()
-						return
-					}
-				}
-			}
-		}
-
 	}
 }
 
 //同步数据
-func (r *River) syncData(dataChan chan *elastic.BulkRequest, ackChan chan *ack) {
+func (r *River) syncData(dataChan chan *elastic.BulkRequest, ackChan chan *ack, name string) {
+	log.Infof("start sync data routine[%s]", name)
 	for {
 		select {
 		case req := <-dataChan:
+			log.Infof("sync routine[%s] received req[%v]", name, req.ReqId)
 			err := r.doPGRequest(req)
 			ackChan <- &ack{req.ReqId, err}
+		case <-r.ctx.Done():
+			log.Infof("close sync data routine[%s]", name)
+			return
 		}
 	}
 }
 
 //position 处理
 func (r *River) posProcessor(posChan chan posSaver, ackChan chan *ack) {
+	defer r.wg.Done()
+	waitClose := false
 	ackCache := make(map[uint64]*ack)
-	ticket := time.NewTicker(time.Millisecond * 500)
+	ticket := time.NewTicker(time.Millisecond * 1000)
 	var err error
+	log.Info("start position processor routine")
 	for {
 		select {
 		case pos := <-posChan:
-			if pos.reqId == 0 {
-				r.master.SetPos(pos.pos)
-			} else {
-				ack := getAck(ackChan, pos.reqId, ackCache)
-				if ack.err == nil {
+			if !waitClose {
+				if pos.reqId == 0 {
 					r.master.SetPos(pos.pos)
 				} else {
-					err = errors.Trace(ack.err)
-				}
-			}
-			if pos.force {
-				err = r.master.SavePos()
+					log.Infof("current reqId[%v]", pos.reqId)
+					ack := getAck(ackChan, pos.reqId, ackCache)
 
+					if ack.err == nil {
+						//r.master.SetPos(pos.pos)
+					} else {
+						err = ack.err
+					}
+				}
+				if pos.force {
+					err = r.master.SavePos()
+				}
+			} else {
+				log.Infof("wait for close, ignore pos...")
 			}
 
 		case <-ticket.C:
 			err = r.master.SavePos()
+		case <-r.Ctx().Done():
+			log.Info("close position routine")
+			return
 		}
-		if err != nil {
 
+		if err != nil {
+			r.cancel()
+			waitClose = true
 		}
 	}
 }
@@ -330,6 +284,31 @@ func getAck(ackChan chan *ack, reqId uint64, ackCache map[uint64]*ack) *ack {
 				return ack
 			} else {
 				ackCache[ack.reqId] = ack
+			}
+		}
+	}
+}
+
+// 同步表结构
+func (r *River) syncTableStructure(syncTableSchema string, syncTableName string) {
+	//等待缓存数据处理完成
+	for len(r.posChan) > 0 {
+		time.Sleep(time.Millisecond * 100)
+	}
+	tableInfo, _ := r.getMysqlTable(syncTableSchema, syncTableName)
+	//fmt.Println(tableInfo)
+	rule, ok := r.rules[ruleKey(syncTableSchema, syncTableName)]
+	if ok {
+		var pg *elastic.PGClient
+		if len(rule.PGName) > 0 {
+			pg, _ = r.pgs[rule.PGName]
+		} else {
+			pg = r.pg
+		}
+		if pg != nil {
+			if err := pg.SyncTable(tableInfo, rule.PGSchema, rule.PGTable, rule.SkipAlterActions); err != nil {
+				log.Errorf("sync table struct err: %v, close sync", err)
+				r.cancel()
 			}
 		}
 	}
@@ -693,7 +672,7 @@ func (r *River) doPGBulkNew(reqs []*elastic.BulkRequest) error {
 	reqMap := make(map[int][]*elastic.BulkRequest)
 	for _, req := range reqs {
 		key := req.TargetName + "_" + req.Index + "_" + req.Type
-		hashcode := Hash(key) % r.c.MaxConn
+		hashcode := util.Hash(key) % r.c.MaxConn
 
 		value, ok := reqMap[hashcode]
 		if ok {
@@ -722,7 +701,7 @@ func (r *River) doPGBulkNew(reqs []*elastic.BulkRequest) error {
 			wg.Done()
 		}()
 	}
-	if WaitTimeout(&wg, time.Millisecond*500) {
+	if util.WaitTimeout(&wg, time.Millisecond*500) {
 		return nil
 	} else {
 		return errors.New("数据处理超时")

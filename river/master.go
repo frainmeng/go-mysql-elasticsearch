@@ -22,6 +22,7 @@ type masterInfo struct {
 
 	filePath     string
 	lastSaveTime time.Time
+	changed      bool
 }
 
 func loadMasterInfo(dataDir string) (*masterInfo, error) {
@@ -101,6 +102,7 @@ func (m *masterInfo) Close() error {
 func (m *masterInfo) SetPos(pos mysql.Position) {
 	m.Lock()
 	defer m.Unlock()
+	m.changed = true
 	m.Name = pos.Name
 	m.Pos = pos.Pos
 }
@@ -109,6 +111,9 @@ func (m *masterInfo) SavePos() error {
 
 	m.Lock()
 	defer m.Unlock()
+	if !m.changed {
+		return nil
+	}
 
 	if len(m.filePath) == 0 {
 		return nil
@@ -128,7 +133,8 @@ func (m *masterInfo) SavePos() error {
 	var err error
 	if err = ioutil2.WriteFileAtomic(m.filePath, buf.Bytes(), 0644); err != nil {
 		log.Errorf("canal save master info to file %s err %v", m.filePath, err)
+	} else {
+		m.changed = false
 	}
-
 	return errors.Trace(err)
 }
