@@ -420,7 +420,7 @@ func (r *River) Close() {
 		log.Info("process exited")
 	case <-time.After(3000 * time.Millisecond):
 		log.Info("process exited after 3 seconds")
-		//syscall.Exit(0)
+		//os.Exit(0)
 		//done <- struct{}{}
 	}
 }
