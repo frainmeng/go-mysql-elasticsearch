@@ -18,7 +18,7 @@ type SourceConfig struct {
 type TargetConfig struct {
 	PGName     string `toml:"pg_name"`
 	PGHost     string `toml:"pg_host"`
-	PGPort     int16  `toml:"pg_port"`
+	PGPort     uint16 `toml:"pg_port"`
 	PGUser     string `toml:"pg_user"`
 	PGPassword string `toml:"pg_pass"`
 	PGDBName   string `toml:"pg_dbname"`
@@ -38,7 +38,7 @@ type Config struct {
 	ESPassword string `toml:"es_pass"`
 
 	PGHost     string `toml:"pg_host"`
-	PGPort     int16  `toml:"pg_port"`
+	PGPort     uint16 `toml:"pg_port"`
 	PGUser     string `toml:"pg_user"`
 	PGPassword string `toml:"pg_pass"`
 	PGDBName   string `toml:"pg_dbname"`

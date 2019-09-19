@@ -27,7 +27,7 @@ type PGClient struct {
 }
 type PGClientConfig struct {
 	Host     string
-	Port     int16
+	Port     uint16
 	User     string
 	Password string
 	DBName   string
