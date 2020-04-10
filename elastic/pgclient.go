@@ -229,6 +229,7 @@ func (client *PGClient) execUpdate(request *BulkRequest, tx *sql.Tx) (err error)
 		stmt, err = client.db.Prepare(updateSql)
 	}
 	if err != nil {
+		//errors.New(err.Error(),updateSql);
 		return errors.Trace(err)
 	}
 	//关闭stmt

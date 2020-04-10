@@ -320,6 +320,7 @@ func (r *River) makeRequest(rule *Rule, action string, rows [][]interface{}) ([]
 		}
 
 		req := &elastic.BulkRequest{TargetName: rule.PGName, Index: rule.PGSchema, Type: pgTable, ID: id, Parent: parentID, Pipeline: rule.Pipeline}
+		routerFilter(rule, values, req)
 		if action == canal.DeleteAction {
 			r.makeDeleteReqData(req, rule, values)
 			r.st.DeleteNum.Add(1)
@@ -378,6 +379,7 @@ func (r *River) makeUpdateRequest(rule *Rule, rows [][]interface{}) ([]*elastic.
 		}
 
 		req := &elastic.BulkRequest{TargetName: rule.PGName, Index: rule.PGSchema, Type: pgTable, ID: beforeID, Parent: beforeParentID}
+		routerFilter(rule, rows[i+1], req)
 		if beforeID != afterID || beforeParentID != afterParentID {
 			req.Action = elastic.ActionDelete
 			reqs = append(reqs, req)
@@ -404,6 +406,51 @@ func (r *River) makeUpdateRequest(rule *Rule, rows [][]interface{}) ([]*elastic.
 	}
 
 	return reqs, nil
+}
+
+func routerFilter(rule *Rule, values []interface{}, req *elastic.BulkRequest) {
+	//无路由
+	if len(rule.DataRouters) == 0 {
+		return
+	}
+	//todo 需要转移
+	for _, dataRouter := range rule.DataRouters {
+		if len(dataRouter.FieldFilters) == 0 {
+			continue
+		}
+		routerFieldMap := make(map[int]string)
+		for fieldName, fieldValue := range dataRouter.FieldFilters {
+			for i, column := range rule.TableInfo.Columns {
+				if column.Name == fieldName {
+					routerFieldMap[i] = fieldValue
+				}
+			}
+		}
+		dataRouter.FieldValueMap = routerFieldMap
+	}
+
+	var hitDataRouter *DataRouter
+	for _, dataRouter := range rule.DataRouters {
+		isHit := true
+		for index, expValue := range dataRouter.FieldValueMap {
+			if fmt.Sprint(values[index]) != expValue {
+				isHit = false
+			}
+		}
+		//命中路由
+		if isHit {
+			hitDataRouter = dataRouter
+			break
+		}
+	}
+	if hitDataRouter != nil {
+		//数据源
+		req.TargetName = hitDataRouter.Target.DataSource
+		//库名
+		req.Index = hitDataRouter.Target.SchemaName
+		//表名
+		req.Type = hitDataRouter.Target.TableName
+	}
 }
 
 func (r *River) makeReqColumnData(col *schema.TableColumn, value interface{}) interface{} {

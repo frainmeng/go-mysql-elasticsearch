@@ -37,6 +37,9 @@ type Rule struct {
 
 	SkipAlterActions []string `toml:"skip_alter_actions"`
 
+	//数据路由
+	DataRouters []*DataRouter `toml:"data_routers"`
+
 	// Elasticsearch pipeline
 	// To pre-process documents before indexing
 	Pipeline string `toml:"pipeline"`
@@ -90,4 +93,16 @@ func (r *Rule) CheckFilter(field string) bool {
 		}
 	}
 	return false
+}
+
+type DataRouter struct {
+	FieldFilters  map[string]string `toml:"field_filters"`
+	Target        RouterTarget      `toml:"target"`
+	FieldValueMap map[int]string
+}
+
+type RouterTarget struct {
+	DataSource string `toml:"data_source"`
+	SchemaName string `toml:"schema_name"`
+	TableName  string `toml:"table_name"`
 }
