@@ -355,6 +355,7 @@ func (r *River) prepareRule() error {
 		} else {
 			rules[key] = rule
 		}
+		rule.prepareDataRouter()
 	}
 	r.rules = rules
 

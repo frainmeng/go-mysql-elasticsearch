@@ -81,6 +81,24 @@ func (r *Rule) prepare() error {
 	return nil
 }
 
+func (r *Rule) prepareDataRouter() {
+	//处理数据路由中FieldValueMap设置，即fieldName对应的index和value
+	for _, dataRouter := range r.DataRouters {
+		if len(dataRouter.FieldFilters) == 0 {
+			continue
+		}
+		routerFieldMap := make(map[int]string)
+		for fieldName, fieldValue := range dataRouter.FieldFilters {
+			for i, column := range r.TableInfo.Columns {
+				if column.Name == fieldName {
+					routerFieldMap[i] = fieldValue
+				}
+			}
+		}
+		dataRouter.FieldValueMap = routerFieldMap
+	}
+}
+
 // CheckFilter checkers whether the field needs to be filtered.
 func (r *Rule) CheckFilter(field string) bool {
 	if r.Filter == nil {

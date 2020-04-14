@@ -159,12 +159,14 @@ func (client *PGClient) execInsert(request *BulkRequest, tx *sql.Tx) (err error)
 	}
 
 	if err != nil {
+		log.Errorf("prepare insert stmt error! stmt[%s]", insertSql)
 		return errors.Trace(err)
 	}
 	//关闭stmt
 	defer stmt.Close()
 	result, err := stmt.Exec(values...)
 	if err != nil {
+		log.Errorf("execute insert sql request error! stmt[%s] value[%v]", insertSql, values)
 		return errors.Trace(err)
 	}
 	log.Infof("pg %s event execute success! Schema[%s] Table[%s], Id[%s],result[%v],reqId[%v]", request.Action, request.Index, request.Type, request.ID, result, request.ReqId)
@@ -189,11 +191,13 @@ func (client *PGClient) execDelete(request *BulkRequest, tx *sql.Tx) (err error)
 		stmt, err = client.db.Prepare(deleteSql)
 	}
 	if err != nil {
+		log.Errorf("prepare delete stmt error! stmt[%s]", deleteSql)
 		return errors.Trace(err)
 	}
 	defer stmt.Close()
 	result, err := stmt.Exec(whereValues...)
 	if err != nil {
+		log.Errorf("execute delete sql request error! stmt[%s] value[%v]", deleteSql, whereValues)
 		return errors.Trace(err)
 	}
 	log.Infof("pg %s event execute success! Schema[%s] Table[%s], Id[%s],result[%v],reqId[%v]", request.Action, request.Index, request.Type, request.ID, result, request.ReqId)
@@ -229,13 +233,14 @@ func (client *PGClient) execUpdate(request *BulkRequest, tx *sql.Tx) (err error)
 		stmt, err = client.db.Prepare(updateSql)
 	}
 	if err != nil {
-		//errors.New(err.Error(),updateSql);
+		log.Errorf("prepare update stmt error! stmt[%s]", updateSql)
 		return errors.Trace(err)
 	}
 	//关闭stmt
 	defer stmt.Close()
 	result, err := stmt.Exec(values...)
 	if err != nil {
+		log.Errorf("execute update sql request error! stmt[%s] value[%v]", updateSql, values)
 		return errors.Trace(err)
 	}
 	log.Infof("pg %s event execute success! Schema[%s] Table[%s], Id[%s],result[%v],reqId[%v]", request.Action, request.Index, request.Type, request.ID, result, request.ReqId)

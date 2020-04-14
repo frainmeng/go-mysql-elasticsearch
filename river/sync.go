@@ -294,6 +294,7 @@ func (r *River) syncTableStructure(syncTableSchema string, syncTableName string)
 				r.cancel()
 			}
 		}
+		rule.prepareDataRouter()
 	}
 }
 
@@ -412,21 +413,6 @@ func routerFilter(rule *Rule, values []interface{}, req *elastic.BulkRequest) {
 	//无路由
 	if len(rule.DataRouters) == 0 {
 		return
-	}
-	//todo 需要转移
-	for _, dataRouter := range rule.DataRouters {
-		if len(dataRouter.FieldFilters) == 0 {
-			continue
-		}
-		routerFieldMap := make(map[int]string)
-		for fieldName, fieldValue := range dataRouter.FieldFilters {
-			for i, column := range rule.TableInfo.Columns {
-				if column.Name == fieldName {
-					routerFieldMap[i] = fieldValue
-				}
-			}
-		}
-		dataRouter.FieldValueMap = routerFieldMap
 	}
 
 	var hitDataRouter *DataRouter
