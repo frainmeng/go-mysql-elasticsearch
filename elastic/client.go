@@ -76,7 +76,7 @@ const (
 	ActionCreate = "create"
 	ActionUpdate = "update"
 	ActionDelete = "delete"
-	ActionIndex  = "index"
+	ActionIndex  = "insert"
 )
 
 // BulkRequest is used to send multi request in batch.

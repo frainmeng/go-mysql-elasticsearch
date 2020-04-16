@@ -379,30 +379,49 @@ func (r *River) makeUpdateRequest(rule *Rule, rows [][]interface{}) ([]*elastic.
 			pgTable = rule.PGTable
 		}
 
+		/**
+		 * 更新操作拆分为删除+新增
+		 */
+
+		//build delete req
 		req := &elastic.BulkRequest{TargetName: rule.PGName, Index: rule.PGSchema, Type: pgTable, ID: beforeID, Parent: beforeParentID}
+		routerFilter(rule, rows[i], req)
+		r.makeDeleteReqData(req, rule, rows[i])
+		r.st.DeleteNum.Add(1)
+		reqs = append(reqs, req)
+
+		//build insert req
+		req = &elastic.BulkRequest{TargetName: rule.PGName, Index: rule.PGSchema, Type: pgTable, ID: afterID, Parent: afterParentID, Pipeline: rule.Pipeline}
 		routerFilter(rule, rows[i+1], req)
-		if beforeID != afterID || beforeParentID != afterParentID {
-			req.Action = elastic.ActionDelete
-			reqs = append(reqs, req)
+		//主键数据
+		r.makeDeleteReqData(req, rule, rows[i+1])
+		r.makeInsertReqData(req, rule, rows[i+1])
+		r.st.InsertNum.Add(1)
 
-			req = &elastic.BulkRequest{TargetName: rule.PGName, Index: rule.PGSchema, Type: pgTable, ID: afterID, Parent: afterParentID, Pipeline: rule.Pipeline}
-			r.makeInsertReqData(req, rule, rows[i+1])
+		/*
 
-			r.st.DeleteNum.Add(1)
-			r.st.InsertNum.Add(1)
-		} else {
-			if len(rule.Pipeline) > 0 {
-				// Pipelines can only be specified on index action
+			if beforeID != afterID || beforeParentID != afterParentID {
+				req.Action = elastic.ActionDelete
+				reqs = append(reqs, req)
+
+				req = &elastic.BulkRequest{TargetName: rule.PGName, Index: rule.PGSchema, Type: pgTable, ID: afterID, Parent: afterParentID, Pipeline: rule.Pipeline}
 				r.makeInsertReqData(req, rule, rows[i+1])
-				// Make sure action is index, not create
-				req.Action = elastic.ActionIndex
-				req.Pipeline = rule.Pipeline
-			} else {
-				r.makeUpdateReqData(req, rule, rows[i], rows[i+1])
-			}
-			r.st.UpdateNum.Add(1)
-		}
 
+				r.st.DeleteNum.Add(1)
+				r.st.InsertNum.Add(1)
+			} else {
+				if len(rule.Pipeline) > 0 {
+					// Pipelines can only be specified on index action
+					r.makeInsertReqData(req, rule, rows[i+1])
+					// Make sure action is index, not create
+					req.Action = elastic.ActionIndex
+					req.Pipeline = rule.Pipeline
+				} else {
+					r.makeUpdateReqData(req, rule, rows[i], rows[i+1])
+				}
+				r.st.UpdateNum.Add(1)
+			}
+		*/
 		reqs = append(reqs, req)
 	}
 
