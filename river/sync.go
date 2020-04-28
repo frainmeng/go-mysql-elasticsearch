@@ -379,24 +379,57 @@ func (r *River) makeUpdateRequest(rule *Rule, rows [][]interface{}) ([]*elastic.
 			pgTable = rule.PGTable
 		}
 
-		/**
-		 * 更新操作拆分为删除+新增
+		//更新前后数据匹配数据路由器
+		beforeDataRouter := matchRouterFilter(rule, rows[i])
+		afterDataRouter := matchRouterFilter(rule, rows[i+1])
+		/*
+		 * - 前后数据匹配到的路由器相同（未匹配到的为nil），则update
+		 * - 前后数据匹配到的路由器不相同（未匹配到的为nil），则delete+insert
 		 */
+		if beforeDataRouter == afterDataRouter {
+			req := &elastic.BulkRequest{TargetName: rule.PGName, Index: rule.PGSchema, Type: pgTable, ID: beforeID, Parent: beforeParentID}
+			/**
+			 * - 主键变更：delete+insert
+			 * - 主键未变更：update
+			 */
+			if beforeID != afterID {
+				/**
+				 * 更新操作拆分为删除+新增
+				 */
+				r.makeDeleteReqData(req, rule, rows[i])
+				reqs = append(reqs, req)
+				r.st.DeleteNum.Add(1)
 
-		//build delete req
-		req := &elastic.BulkRequest{TargetName: rule.PGName, Index: rule.PGSchema, Type: pgTable, ID: beforeID, Parent: beforeParentID}
-		routerFilter(rule, rows[i], req)
-		r.makeDeleteReqData(req, rule, rows[i])
-		r.st.DeleteNum.Add(1)
-		reqs = append(reqs, req)
+				req = &elastic.BulkRequest{TargetName: rule.PGName, Index: rule.PGSchema, Type: pgTable, ID: afterID, Parent: afterParentID, Pipeline: rule.Pipeline}
+				r.makeDeleteReqData(req, rule, rows[i+1])
+				r.makeInsertReqData(req, rule, rows[i+1])
+				r.st.InsertNum.Add(1)
+			} else {
+				r.makeUpdateReqData(req, rule, rows[i], rows[i+1])
+				r.st.UpdateNum.Add(1)
+			}
+			reqs = append(reqs, req)
+		} else {
+			/**
+			 * 更新操作拆分为删除+新增
+			 */
+			//build delete req
+			req := &elastic.BulkRequest{TargetName: rule.PGName, Index: rule.PGSchema, Type: pgTable, ID: beforeID, Parent: beforeParentID}
+			changeDataSource(beforeDataRouter, req)
+			r.makeDeleteReqData(req, rule, rows[i])
+			r.st.DeleteNum.Add(1)
+			reqs = append(reqs, req)
 
-		//build insert req
-		req = &elastic.BulkRequest{TargetName: rule.PGName, Index: rule.PGSchema, Type: pgTable, ID: afterID, Parent: afterParentID, Pipeline: rule.Pipeline}
-		routerFilter(rule, rows[i+1], req)
-		//主键数据
-		r.makeDeleteReqData(req, rule, rows[i+1])
-		r.makeInsertReqData(req, rule, rows[i+1])
-		r.st.InsertNum.Add(1)
+			//build insert req
+			req = &elastic.BulkRequest{TargetName: rule.PGName, Index: rule.PGSchema, Type: pgTable, ID: afterID, Parent: afterParentID, Pipeline: rule.Pipeline}
+			changeDataSource(afterDataRouter, req)
+			//主键数据
+			r.makeDeleteReqData(req, rule, rows[i+1])
+			r.makeInsertReqData(req, rule, rows[i+1])
+			r.st.InsertNum.Add(1)
+			reqs = append(reqs, req)
+
+		}
 
 		/*
 
@@ -422,19 +455,38 @@ func (r *River) makeUpdateRequest(rule *Rule, rows [][]interface{}) ([]*elastic.
 				r.st.UpdateNum.Add(1)
 			}
 		*/
-		reqs = append(reqs, req)
+
 	}
 
 	return reqs, nil
 }
 
+//数据路由
 func routerFilter(rule *Rule, values []interface{}, req *elastic.BulkRequest) {
-	//无路由
+	//匹配路由
+	hitDataRouter := matchRouterFilter(rule, values)
+	//更换匹配到的数据源
+	changeDataSource(hitDataRouter, req)
+}
+
+func changeDataSource(hitDataRouter *DataRouter, req *elastic.BulkRequest) {
+	if hitDataRouter != nil {
+		//数据源
+		req.TargetName = hitDataRouter.Target.DataSource
+		//库名
+		req.Index = hitDataRouter.Target.SchemaName
+		//表名
+		req.Type = hitDataRouter.Target.TableName
+	}
+}
+
+//匹配数据路由
+func matchRouterFilter(rule *Rule, values []interface{}) *DataRouter {
+	//未配置路由
 	if len(rule.DataRouters) == 0 {
-		return
+		return nil
 	}
 
-	var hitDataRouter *DataRouter
 	for _, dataRouter := range rule.DataRouters {
 		isHit := true
 		for index, expValue := range dataRouter.FieldValueMap {
@@ -444,18 +496,24 @@ func routerFilter(rule *Rule, values []interface{}, req *elastic.BulkRequest) {
 		}
 		//命中路由
 		if isHit {
-			hitDataRouter = dataRouter
-			break
+			return dataRouter
 		}
 	}
-	if hitDataRouter != nil {
-		//数据源
-		req.TargetName = hitDataRouter.Target.DataSource
-		//库名
-		req.Index = hitDataRouter.Target.SchemaName
-		//表名
-		req.Type = hitDataRouter.Target.TableName
+
+	//无匹配路由
+	return nil
+
+}
+
+//update操作是否改变的数据路由依据的字段的值,如果修改了则需要将update操作拆分成delete+insert
+func isUpdateRouterData(dataRouter *DataRouter, beforeValues []interface{}, afterValues []interface{}) bool {
+	for index := range dataRouter.FieldValueMap {
+		if fmt.Sprint(beforeValues[index]) != fmt.Sprint(afterValues[index]) {
+			return true
+		}
 	}
+	return false
+
 }
 
 func (r *River) makeReqColumnData(col *schema.TableColumn, value interface{}) interface{} {
