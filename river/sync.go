@@ -383,31 +383,14 @@ func (r *River) makeUpdateRequest(rule *Rule, rows [][]interface{}) ([]*elastic.
 		beforeDataRouter := matchRouterFilter(rule, rows[i])
 		afterDataRouter := matchRouterFilter(rule, rows[i+1])
 		/*
-		 * - 前后数据匹配到的路由器相同（未匹配到的为nil），则update
-		 * - 前后数据匹配到的路由器不相同（未匹配到的为nil），则delete+insert
+		 * - 前后数据匹配到的路由器相同（未匹配到的为nil）&& 主键未变更，则update
+		 * - 前后数据匹配到的路由器不相同（未匹配到的为nil）|| 主键变更，则delete+insert
 		 */
-		if beforeDataRouter == afterDataRouter {
+		if beforeDataRouter == afterDataRouter && beforeID == afterID {
 			req := &elastic.BulkRequest{TargetName: rule.PGName, Index: rule.PGSchema, Type: pgTable, ID: beforeID, Parent: beforeParentID}
-			/**
-			 * - 主键变更：delete+insert
-			 * - 主键未变更：update
-			 */
-			if beforeID != afterID {
-				/**
-				 * 更新操作拆分为删除+新增
-				 */
-				r.makeDeleteReqData(req, rule, rows[i])
-				reqs = append(reqs, req)
-				r.st.DeleteNum.Add(1)
-
-				req = &elastic.BulkRequest{TargetName: rule.PGName, Index: rule.PGSchema, Type: pgTable, ID: afterID, Parent: afterParentID, Pipeline: rule.Pipeline}
-				r.makeDeleteReqData(req, rule, rows[i+1])
-				r.makeInsertReqData(req, rule, rows[i+1])
-				r.st.InsertNum.Add(1)
-			} else {
-				r.makeUpdateReqData(req, rule, rows[i], rows[i+1])
-				r.st.UpdateNum.Add(1)
-			}
+			r.makeUpdateReqData(req, rule, rows[i], rows[i+1])
+			changeDataSource(beforeDataRouter, req)
+			r.st.UpdateNum.Add(1)
 			reqs = append(reqs, req)
 		} else {
 			/**
