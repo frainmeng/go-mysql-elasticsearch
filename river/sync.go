@@ -621,19 +621,41 @@ func (r *River) makeDeleteReqData(req *elastic.BulkRequest, rule *Rule, values [
 	req.PKData = make(map[string]interface{}, len(values))
 	req.Action = elastic.ActionDelete
 
-	//主键数据
-	for _, index := range rule.TableInfo.PKColumns {
-		c := rule.TableInfo.Columns[index]
-		mapped := false
-		for k, v := range rule.FieldMapping {
-			mysql, elastic, fieldType := r.getFieldParts(k, v)
-			if mysql == c.Name {
-				mapped = true
-				req.PKData[elastic] = r.getFieldValue(&c, fieldType, values[index])
+	if rule.ID == nil || len(rule.ID) == 0 {
+		//使用主键数据
+		for _, index := range rule.TableInfo.PKColumns {
+			c := rule.TableInfo.Columns[index]
+			mapped := false
+			for k, v := range rule.FieldMapping {
+				mysql, elastic, fieldType := r.getFieldParts(k, v)
+				if mysql == c.Name {
+					mapped = true
+					req.PKData[elastic] = r.getFieldValue(&c, fieldType, values[index])
+				}
+			}
+			if mapped == false {
+				req.PKData[c.Name] = r.makeReqColumnData(&c, values[index])
 			}
 		}
-		if mapped == false {
-			req.PKData[c.Name] = r.makeReqColumnData(&c, values[index])
+
+	} else {
+		for _, columnName := range rule.ID {
+			index := rule.TableInfo.FindColumn(columnName)
+			if index < 0 {
+				log.Errorf("rule.ID 配置有误，column[%v] 不存在", columnName)
+			}
+			c := rule.TableInfo.Columns[index]
+			mapped := false
+			for k, v := range rule.FieldMapping {
+				mysql, elastic, fieldType := r.getFieldParts(k, v)
+				if mysql == c.Name {
+					mapped = true
+					req.PKData[elastic] = r.getFieldValue(&c, fieldType, values[index])
+				}
+			}
+			if mapped == false {
+				req.PKData[c.Name] = r.makeReqColumnData(&c, values[index])
+			}
 		}
 	}
 }
