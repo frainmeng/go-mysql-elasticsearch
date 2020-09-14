@@ -137,6 +137,9 @@ func (client *PGClient) execInsert(request *BulkRequest, tx *sql.Tx) (err error)
 
 	//组装更新数据
 	for key, _ := range request.Data {
+		if client.isPKColumn(key, request.PKData) {
+			continue
+		}
 		upsertExps = append(upsertExps, key+"=EXCLUDED."+key)
 	}
 	//组装条件数据（主键）
@@ -171,6 +174,16 @@ func (client *PGClient) execInsert(request *BulkRequest, tx *sql.Tx) (err error)
 	}
 	log.Infof("pg %s event execute success! Schema[%s] Table[%s], Id[%s],result[%v],reqId[%v]", request.Action, request.Index, request.Type, request.ID, result, request.ReqId)
 	return
+}
+
+func (client *PGClient) isPKColumn(column string, PKData map[string]interface{}) bool {
+	//组装条件数据（主键）
+	for key, _ := range PKData {
+		if key == column {
+			return true
+		}
+	}
+	return false
 }
 
 //执行删除操作
