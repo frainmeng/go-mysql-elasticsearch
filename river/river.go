@@ -4,15 +4,14 @@ import (
 	"context"
 	"fmt"
 	"regexp"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/frainmeng/go-mysql/canal"
 	"github.com/juju/errors"
 	"github.com/siddontang/go-log/log"
 	"github.com/siddontang/go-mysql-elasticsearch/elastic"
-	"github.com/siddontang/go-mysql/canal"
 
 	"github.com/cactus/go-statsd-client/statsd"
 )
@@ -374,10 +373,10 @@ func (r *River) Run() error {
 		dataChanLen = 1
 	}
 	//启动数据处理线程
-	for i := 0; i < len(r.dataChans); i++ {
-		r.dataChans[i] = make(chan *elastic.BulkRequest, dataChanLen)
-		go r.syncData(r.dataChans[i], r.ackChan, strconv.Itoa(i))
-	}
+	//for i := 0; i < len(r.dataChans); i++ {
+	//	r.dataChans[i] = make(chan *elastic.BulkRequest, dataChanLen)
+	//	go r.syncData(r.dataChans[i], r.ackChan, strconv.Itoa(i))
+	//}
 	//position 处理线程
 	r.wg.Add(1)
 	go r.posProcessor(r.posChan, r.ackChan)

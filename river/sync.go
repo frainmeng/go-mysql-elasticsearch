@@ -4,21 +4,21 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"github.com/siddontang/go-mysql-elasticsearch/util"
 	"github.com/siddontang/go/hack"
 	"reflect"
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/frainmeng/go-mysql/canal"
+	"github.com/frainmeng/go-mysql/mysql"
+	"github.com/frainmeng/go-mysql/replication"
+	"github.com/frainmeng/go-mysql/schema"
 	"github.com/juju/errors"
 	"github.com/siddontang/go-log/log"
 	"github.com/siddontang/go-mysql-elasticsearch/elastic"
-	"github.com/siddontang/go-mysql/canal"
-	"github.com/siddontang/go-mysql/mysql"
-	"github.com/siddontang/go-mysql/replication"
-	"github.com/siddontang/go-mysql/schema"
 )
 
 const (
@@ -49,6 +49,12 @@ type ack struct {
 
 type syncTable struct {
 	schema, table string
+}
+
+type mtsWait struct {
+	nextPos        mysql.Position
+	LastCommitted  int64
+	SequenceNumber int64
 }
 
 type eventHandler struct {
@@ -146,7 +152,12 @@ func (h *eventHandler) OnGTID(gtid mysql.GTIDSet) error {
 	return nil
 }
 
-func (h *eventHandler) OnPosSynced(pos mysql.Position, force bool) error {
+func (h *eventHandler) OnGTIDMTS(nextPos mysql.Position, gtidEvent *replication.GTIDEvent) error {
+	h.r.syncCh <- mtsWait{nextPos, gtidEvent.LastCommitted, gtidEvent.SequenceNumber}
+	return nil
+}
+
+func (h *eventHandler) OnPosSynced(pos mysql.Position, set mysql.GTIDSet, force bool) error {
 	return nil
 }
 
@@ -156,36 +167,46 @@ func (h *eventHandler) String() string {
 
 func (r *River) syncLoop() {
 	defer r.wg.Done()
-	pos := mysql.Position{Name: r.master.Name, Pos: r.master.Pos}
-	reqId := uint64(0)
+	wg := sync.WaitGroup{}
+	var mts mtsWait
+	//pos := mysql.Position{Name: r.master.Name, Pos: r.master.Pos}
+	//reqId := uint64(0)
 	for {
 		select {
 		case v := <-r.syncCh:
 			switch v := v.(type) {
 			case posSaver:
 				r.posChan <- v
-				pos = v.pos
+				//pos = v.pos
 			case syncTable:
 				r.syncTableStructure(v.schema, v.table)
+			case mtsWait:
+				//等待上一个commit执行完
+				if mts.LastCommitted != v.LastCommitted {
+					wg.Wait()
+					mts = v
+				}
 			case []*elastic.BulkRequest:
 				for _, req := range v {
-					reqId++
-					//重置 reqId
-					if reqId == util.MAX_REQ_ID {
-						reqId = uint64(0)
-					}
-					//position
-					pos.Pos = req.Pos
-					//posNow := mysql.Position{
-					//	Name: string(pos.Name),
-					//	Pos:  uint32(pos.Pos),
+					//reqId++
+					////重置 reqId
+					//if reqId == util.MAX_REQ_ID {
+					//	reqId = uint64(0)
 					//}
-					//pos chan
-					r.posChan <- posSaver{force: false, reqId: reqId}
-					//set reqId
-					req.ReqId = reqId
-					//data chan
-					r.dataChans[req.Hash()%r.c.ConcurrentSize] <- req
+					////position
+					//pos.Pos = req.Pos
+					////posNow := mysql.Position{
+					////	Name: string(pos.Name),
+					////	Pos:  uint32(pos.Pos),
+					////}
+					////pos chan
+					//r.posChan <- posSaver{force: false, reqId: reqId}
+					////set reqId
+					//req.ReqId = reqId
+					////data chan
+					//r.dataChans[req.Hash()%r.c.ConcurrentSize] <- req
+					wg.Add(1)
+					go r.asyncDoPGRequest(req, &wg)
 				}
 			}
 		case <-r.ctx.Done():
@@ -214,8 +235,8 @@ func (r *River) syncData(dataChan chan *elastic.BulkRequest, ackChan chan *ack, 
 func (r *River) posProcessor(posChan chan posSaver, ackChan chan *ack) {
 	defer r.wg.Done()
 	waitClose := false
-	ackCache := make(map[uint64]*ack)
-	ticket := time.NewTicker(time.Millisecond * 1000)
+	//ackCache := make(map[uint64]*ack)
+	ticket := time.NewTicker(time.Millisecond * 5000)
 	var err error
 	log.Info("start position processor routine")
 	for {
@@ -226,12 +247,12 @@ func (r *River) posProcessor(posChan chan posSaver, ackChan chan *ack) {
 					r.master.SetPos(pos.pos)
 				} else {
 					//log.Infof("current reqId[%v]", pos.reqId)
-					ack := getAck(ackChan, pos.reqId, ackCache)
-					if ack.err == nil {
-						//r.master.SetPos(pos.pos)
-					} else {
-						err = ack.err
-					}
+					//ack := getAck(ackChan, pos.reqId, ackCache)
+					//if ack.err == nil {
+					//	//r.master.SetPos(pos.pos)
+					//} else {
+					//	err = ack.err
+					//}
 				}
 				if pos.force {
 					err = r.master.SavePos()
@@ -738,6 +759,13 @@ func (r *River) getParentID(rule *Rule, row []interface{}, columnName string) (s
 	}
 
 	return fmt.Sprint(row[index]), nil
+}
+
+func (r *River) asyncDoPGRequest(req *elastic.BulkRequest, wg *sync.WaitGroup) {
+	defer wg.Done()
+	if err := r.doPGRequest(req); err != nil {
+		r.cancel()
+	}
 }
 
 func (r *River) doPGRequest(req *elastic.BulkRequest) error {
