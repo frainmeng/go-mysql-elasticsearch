@@ -183,18 +183,19 @@ func (r *River) syncLoop() {
 			case syncTable:
 				r.syncTableStructure(v.schema, v.table)
 			case mtsWait:
-				//等待上一个commit执行完
-				if mts.LastCommitted != v.LastCommitted {
-					wg.Wait()
-					mts = v
-				} else {
+				if len(reqs) > 0 {
 					//异步并发执行
 					wg.Add(1)
 					go r.asyncDoPGRequest(reqs, &wg)
-					//重置reqs
+					//重置reqs，
 					reqs = make([]*elastic.BulkRequest, 0)
 				}
 
+				//LastCommitted变更需要等待上一个commit执行完
+				if mts.LastCommitted != v.LastCommitted {
+					wg.Wait()
+					mts = v
+				}
 			case []*elastic.BulkRequest:
 				for _, req := range v {
 					//reqId++
