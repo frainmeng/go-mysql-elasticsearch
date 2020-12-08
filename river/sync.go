@@ -171,6 +171,8 @@ func (r *River) syncLoop() {
 	var mts mtsWait
 	//pos := mysql.Position{Name: r.master.Name, Pos: r.master.Pos}
 	//reqId := uint64(0)
+	reqs := make([]*elastic.BulkRequest, 0)
+
 	for {
 		select {
 		case v := <-r.syncCh:
@@ -185,7 +187,14 @@ func (r *River) syncLoop() {
 				if mts.LastCommitted != v.LastCommitted {
 					wg.Wait()
 					mts = v
+				} else {
+					//异步并发执行
+					wg.Add(1)
+					go r.asyncDoPGRequest(reqs, &wg)
+					//重置reqs
+					reqs = make([]*elastic.BulkRequest, 0)
 				}
+
 			case []*elastic.BulkRequest:
 				for _, req := range v {
 					//reqId++
@@ -205,8 +214,7 @@ func (r *River) syncLoop() {
 					//req.ReqId = reqId
 					////data chan
 					//r.dataChans[req.Hash()%r.c.ConcurrentSize] <- req
-					wg.Add(1)
-					go r.asyncDoPGRequest(req, &wg)
+					reqs = append(reqs, req)
 				}
 			}
 		case <-r.ctx.Done():
@@ -761,11 +769,15 @@ func (r *River) getParentID(rule *Rule, row []interface{}, columnName string) (s
 	return fmt.Sprint(row[index]), nil
 }
 
-func (r *River) asyncDoPGRequest(req *elastic.BulkRequest, wg *sync.WaitGroup) {
+func (r *River) asyncDoPGRequest(reqs []*elastic.BulkRequest, wg *sync.WaitGroup) {
 	defer wg.Done()
-	if err := r.doPGRequest(req); err != nil {
-		r.cancel()
+	for _, req := range reqs {
+		if err := r.doPGRequest(req); err != nil {
+			r.cancel()
+			break
+		}
 	}
+
 }
 
 func (r *River) doPGRequest(req *elastic.BulkRequest) error {
