@@ -6,8 +6,10 @@ import (
 	_ "github.com/lib/pq"
 	"github.com/pingcap/errors"
 	"github.com/siddontang/go-log/log"
+	"math/rand"
 	"strconv"
 	"strings"
+	"time"
 )
 
 const (
@@ -22,8 +24,9 @@ const (
 )
 
 type PGClient struct {
-	db   *sql.DB
-	Conf *PGClientConfig
+	db     *sql.DB
+	dbPool []*sql.DB
+	Conf   *PGClientConfig
 }
 type PGClientConfig struct {
 	Host     string
@@ -38,13 +41,16 @@ func NewPGClient(conf *PGClientConfig) *PGClient {
 	c := new(PGClient)
 	c.Conf = conf
 	pgSqlInfo := fmt.Sprintf("host=%s port=%d user=%s "+"password=%s dbname=%s sslmode=disable", conf.Host, conf.Port, conf.User, conf.Password, conf.DBName)
-	db, err := sql.Open("postgres", pgSqlInfo)
-	if err != nil {
-		panic(err)
+	for i := 0; i < conf.MaxConn; i++ {
+		db, err := sql.Open("postgres", pgSqlInfo)
+		if err != nil {
+			panic(err)
+		}
+		db.SetMaxOpenConns(conf.MaxConn)
+		db.SetMaxIdleConns(conf.MaxConn)
+		db.SetConnMaxIdleTime(time.Second * 30)
+		c.dbPool = append(c.dbPool, db)
 	}
-	db.SetMaxOpenConns(conf.MaxConn)
-	db.SetMaxIdleConns(conf.MaxConn)
-	c.db = db
 	return c
 }
 
@@ -58,7 +64,7 @@ func (client *PGClient) Bulk(items []*BulkRequest) (err error) {
 	var tx *sql.Tx
 	//同时处理多个请求需要开启事物
 	if len(items) > 1 {
-		tx, err = client.db.Begin()
+		tx, err = client.dbPool[rand.Intn(client.Conf.MaxConn)].Begin()
 		if err != nil {
 			return errors.Trace(err)
 		}
@@ -158,7 +164,7 @@ func (client *PGClient) execInsert(request *BulkRequest, tx *sql.Tx) (err error)
 	if tx != nil {
 		stmt, err = tx.Prepare(insertSql)
 	} else {
-		stmt, err = client.db.Prepare(insertSql)
+		stmt, err = client.dbPool[rand.Intn(client.Conf.MaxConn)].Prepare(insertSql)
 	}
 
 	if err != nil {
@@ -201,7 +207,7 @@ func (client *PGClient) execDelete(request *BulkRequest, tx *sql.Tx) (err error)
 	if tx != nil {
 		stmt, err = tx.Prepare(deleteSql)
 	} else {
-		stmt, err = client.db.Prepare(deleteSql)
+		stmt, err = client.dbPool[rand.Intn(client.Conf.MaxConn)].Prepare(deleteSql)
 	}
 	if err != nil {
 		log.Errorf("prepare delete stmt error! stmt[%s]", deleteSql)
@@ -243,7 +249,7 @@ func (client *PGClient) execUpdate(request *BulkRequest, tx *sql.Tx) (err error)
 	if tx != nil {
 		stmt, err = tx.Prepare(updateSql)
 	} else {
-		stmt, err = client.db.Prepare(updateSql)
+		stmt, err = client.dbPool[rand.Intn(client.Conf.MaxConn)].Prepare(updateSql)
 	}
 	if err != nil {
 		log.Errorf("prepare update stmt error! stmt[%s]", updateSql)
@@ -366,7 +372,7 @@ func (client *PGClient) SyncTable(mysqlTableInfo *TableInfo, pgSchema string, pg
 	} else {
 		log.Infof("同步表结构语句：\n%s", sqlStatement)
 	}
-	_, err = client.db.Exec(sqlStatement)
+	_, err = client.dbPool[rand.Intn(client.Conf.MaxConn)].Exec(sqlStatement)
 	if err != nil {
 		log.Errorf("同步表结构失败:%v", err)
 		err = errors.Trace(err)
@@ -408,7 +414,7 @@ func convert(mysqlTableInfo *TableInfo, tableSchema string, tableName string) *T
 
 //getTable 获取表结构
 func (client *PGClient) getTable(schema string, table string) (*TableInfo, error) {
-	stmt, err := client.db.Prepare(tableSchemaQuery)
+	stmt, err := client.dbPool[rand.Intn(client.Conf.MaxConn)].Prepare(tableSchemaQuery)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
