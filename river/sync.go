@@ -794,12 +794,16 @@ func (r *River) doPGRequest(req *elastic.BulkRequest) error {
 			log.Errorf("sync docs err %v after binlog %s", err, r.canal.SyncedPosition())
 			return errors.Trace(err)
 		}
-		metricName := fmt.Sprintf(r.metricPrefix, strings.Replace(pg.Conf.Host, ".", "_", -1), pg.Conf.DBName)
-		delaySecond := time.Now().Unix() - int64(req.Timestamp)
-		if delaySecond >= 0 {
-			_ = r.statsdClient.Timing(metricName+"delay", delaySecond*1000, 1.0)
-		}
-		_ = r.statsdClient.Inc(metricName+req.Action, 1, 1)
+		//异步记录监控指标
+		go func() {
+			metricName := fmt.Sprintf(r.metricPrefix, strings.Replace(pg.Conf.Host, ".", "_", -1), pg.Conf.DBName)
+			delaySecond := time.Now().Unix() - int64(req.Timestamp)
+			if delaySecond >= 0 {
+				_ = r.statsdClient.Timing(metricName+"delay", delaySecond*1000, 1.0)
+			}
+			_ = r.statsdClient.Inc(metricName+req.Action, 1, 1)
+		}()
+
 	} else {
 		err := errors.Errorf("can not find targetSource[%s] for [%s.%s]", req.Index, req.Type, req.TargetName)
 		log.Errorf("sync data error:%v", err)
