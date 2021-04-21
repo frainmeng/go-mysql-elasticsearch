@@ -10,7 +10,7 @@ require (
 	github.com/juju/loggo v0.0.0-20190212223446-d976af380377 // indirect
 	github.com/juju/testing v0.0.0-20180920084828-472a3e8b2073 // indirect
 	github.com/kr/pretty v0.1.0 // indirect
-	github.com/lib/pq v1.0.0
+	github.com/lib/pq v1.10.0
 	github.com/pingcap/check v0.0.0-20190102082844-67f458068fc8
 	github.com/pingcap/errors v0.11.1
 	github.com/pkg/errors v0.8.1 // indirect

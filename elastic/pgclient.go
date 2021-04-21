@@ -40,12 +40,13 @@ type PGClientConfig struct {
 func NewPGClient(conf *PGClientConfig) *PGClient {
 	c := new(PGClient)
 	c.Conf = conf
-	pgSqlInfo := fmt.Sprintf("host=%s port=%d user=%s "+"password=%s dbname=%s sslmode=disable", conf.Host, conf.Port, conf.User, conf.Password, conf.DBName)
+	pgSqlInfo := fmt.Sprintf("host=%s port=%d user=%s "+"password=%s dbname=%s sslmode=disable connect_timeou=5", conf.Host, conf.Port, conf.User, conf.Password, conf.DBName)
 	for i := 0; i < conf.MaxConn; i++ {
 		db, err := sql.Open("postgres", pgSqlInfo)
 		if err != nil {
 			panic(err)
 		}
+		db.SetConnMaxLifetime(time.Minute * 10)
 		db.SetMaxOpenConns(conf.MaxConn)
 		db.SetMaxIdleConns(conf.MaxConn)
 		db.SetConnMaxIdleTime(time.Second * 30)
